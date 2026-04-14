@@ -1,6 +1,13 @@
 import * as vscode from "vscode";
+import { SessionManager } from "./sessionManager";
+
+let sessionManager: SessionManager;
 
 export function activate(context: vscode.ExtensionContext): void {
+  sessionManager = new SessionManager();
+  context.subscriptions.push(sessionManager);
+
+  // Stub commands — wired to real implementations in subsequent tasks
   const stubs = [
     "claudeSessions.openSession",
     "claudeSessions.addFolder",
