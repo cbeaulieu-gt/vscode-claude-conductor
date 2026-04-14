@@ -1,0 +1,156 @@
+{
+  "name": "vscode-claude-sessions",
+  "displayName": "Claude Session Manager",
+  "description": "Manage multiple Claude Code sessions across projects as editor tabs",
+  "version": "1.0.0",
+  "publisher": "cbeaulieu-gt",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeSessions.openSession",
+        "title": "Claude Sessions: Launch Session",
+        "icon": "$(play)"
+      },
+      {
+        "command": "claudeSessions.addFolder",
+        "title": "Claude Sessions: Add Folder",
+        "icon": "$(add)"
+      },
+      {
+        "command": "claudeSessions.nextSession",
+        "title": "Claude Sessions: Next Session"
+      },
+      {
+        "command": "claudeSessions.prevSession",
+        "title": "Claude Sessions: Previous Session"
+      },
+      {
+        "command": "claudeSessions.focusSession",
+        "title": "Focus Session"
+      },
+      {
+        "command": "claudeSessions.closeSession",
+        "title": "Close Session",
+        "icon": "$(close)"
+      },
+      {
+        "command": "claudeSessions.refreshTreeView",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claudeSessions",
+          "title": "Claude Sessions",
+          "icon": "$(sparkle)"
+        }
+      ]
+    },
+    "views": {
+      "claudeSessions": [
+        {
+          "id": "claudeSessions.activeSessions",
+          "name": "Active Sessions"
+        },
+        {
+          "id": "claudeSessions.recentProjects",
+          "name": "Recent Projects"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "claudeSessions.openSession",
+          "when": "view == claudeSessions.recentProjects",
+          "group": "navigation"
+        },
+        {
+          "command": "claudeSessions.addFolder",
+          "when": "view == claudeSessions.recentProjects",
+          "group": "navigation"
+        },
+        {
+          "command": "claudeSessions.refreshTreeView",
+          "when": "view == claudeSessions.activeSessions || view == claudeSessions.recentProjects",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "claudeSessions.focusSession",
+          "when": "viewItem == activeSession",
+          "group": "inline"
+        },
+        {
+          "command": "claudeSessions.closeSession",
+          "when": "viewItem == activeSession",
+          "group": "inline"
+        },
+        {
+          "command": "claudeSessions.openSession",
+          "when": "viewItem == recentProject",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Claude Sessions",
+      "properties": {
+        "claudeSessions.claudeCommand": {
+          "type": "string",
+          "default": "claude",
+          "description": "The Claude Code CLI command to run"
+        },
+        "claudeSessions.reuseExistingTerminal": {
+          "type": "boolean",
+          "default": true,
+          "description": "Focus existing session tab instead of opening a duplicate"
+        },
+        "claudeSessions.extraFolders": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional folder paths to show in the session launcher"
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "claudeSessions.openSession",
+        "key": "ctrl+shift+alt+c",
+        "mac": "cmd+shift+alt+c"
+      },
+      {
+        "command": "claudeSessions.nextSession",
+        "key": "ctrl+alt+]",
+        "mac": "cmd+alt+]"
+      },
+      {
+        "command": "claudeSessions.prevSession",
+        "key": "ctrl+alt+[",
+        "mac": "cmd+alt+["
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npm run compile && vsce package --no-dependencies",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.24.0"
+  }
+}
