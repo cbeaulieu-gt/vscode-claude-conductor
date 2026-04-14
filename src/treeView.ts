@@ -11,7 +11,9 @@ class ActiveSessionItem extends vscode.TreeItem {
     this.session = session;
     this.description = path.dirname(session.folderPath);
     this.tooltip = `${session.folderPath}\nStarted: ${session.startedAt.toLocaleTimeString()}`;
-    this.iconPath = new vscode.ThemeIcon("terminal", new vscode.ThemeColor("testing.iconPassed"));
+    this.iconPath = session.isIdle
+      ? new vscode.ThemeIcon("bell", new vscode.ThemeColor("editorWarning.foreground"))
+      : new vscode.ThemeIcon("terminal", new vscode.ThemeColor("testing.iconPassed"));
     this.contextValue = "activeSession";
     this.command = {
       command: "claudeSessions.focusSession",

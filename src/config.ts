@@ -15,6 +15,10 @@ export function getReuseTerminal(): boolean {
   return getConfig().get<boolean>("reuseExistingTerminal", true);
 }
 
+export function getEnableNotifications(): boolean {
+  return getConfig().get<boolean>("enableNotifications", true);
+}
+
 export function getExtraFolders(): string[] {
   return getConfig()
     .get<string[]>("extraFolders", [])

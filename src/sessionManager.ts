@@ -10,6 +10,7 @@ export interface ActiveSession {
   folderPath: string;
   folderName: string;
   startedAt: Date;
+  isIdle: boolean;
 }
 
 export class SessionManager implements vscode.Disposable {
@@ -103,6 +104,15 @@ export class SessionManager implements vscode.Disposable {
     // onDidCloseTerminal listener handles cleanup and event firing
   }
 
+  /** Set the idle state for a session by folder path. */
+  setSessionIdle(folderPath: string, idle: boolean): void {
+    const session = this._findSessionByFolder(path.normalize(folderPath));
+    if (session && session.isIdle !== idle) {
+      session.isIdle = idle;
+      this._onDidChangeSessions.fire();
+    }
+  }
+
   /** Find a session by its folder path (case-insensitive). */
   findSessionByFolder(folderPath: string): ActiveSession | undefined {
     return this._findSessionByFolder(path.normalize(folderPath));
@@ -137,6 +147,7 @@ export class SessionManager implements vscode.Disposable {
       folderPath: path.normalize(folderPath),
       folderName: path.basename(folderPath),
       startedAt: new Date(),
+      isIdle: false,
     });
     this._onDidChangeSessions.fire();
   }
