@@ -4,6 +4,8 @@ import { showQuickPick, addFolderPrompt } from "./quickPick";
 import { ActiveSessionsProvider, RecentProjectsProvider } from "./treeView";
 import { StatusBar } from "./statusBar";
 import { ClaudeTerminalLinkProvider } from "./terminalLinks";
+import { StateWatcher } from "./stateWatcher";
+import { ensureHooksInstalled, setupHooksCommand, uninstallHooks } from "./hookInstaller";
 
 let sessionManager: SessionManager;
 
@@ -68,6 +70,13 @@ export function activate(context: vscode.ExtensionContext): void {
     sessionManager.launchSession(autoLaunchFolder);
   }
 
+  // State watcher for idle notifications (via Claude Code hooks)
+  const stateWatcher = new StateWatcher(sessionManager);
+  context.subscriptions.push(stateWatcher);
+
+  // Check/prompt for hook installation (async, non-blocking)
+  ensureHooksInstalled(context);
+
   // Tree view providers
   const activeProvider = new ActiveSessionsProvider(sessionManager);
   const recentProvider = new RecentProjectsProvider(sessionManager);
@@ -123,6 +132,10 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.env.openExternal(uri);
     }),
 
+    vscode.commands.registerCommand("claudeSessions.setupHooks", () =>
+      setupHooksCommand(context)
+    ),
+
     vscode.commands.registerCommand("claudeSessions.refreshTreeView", () => {
       activeProvider.refresh();
       recentProvider.refresh();
@@ -165,4 +178,7 @@ function cycleSession(sm: SessionManager, direction: 1 | -1): void {
   sm.focusSession(sessions[nextIndex]);
 }
 
-export function deactivate(): void {}
+export function deactivate(): void {
+  // Remove our hooks from ~/.claude/settings.json and clean up state files
+  uninstallHooks();
+}
