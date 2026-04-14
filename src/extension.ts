@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { SessionManager } from "./sessionManager";
+import { showQuickPick, addFolderPrompt } from "./quickPick";
 
 let sessionManager: SessionManager;
 
@@ -7,10 +8,17 @@ export function activate(context: vscode.ExtensionContext): void {
   sessionManager = new SessionManager();
   context.subscriptions.push(sessionManager);
 
-  // Stub commands — wired to real implementations in subsequent tasks
+  context.subscriptions.push(
+    vscode.commands.registerCommand("claudeSessions.openSession", () =>
+      showQuickPick(sessionManager)
+    ),
+    vscode.commands.registerCommand("claudeSessions.addFolder", () =>
+      addFolderPrompt()
+    )
+  );
+
+  // Remaining stubs — wired in subsequent tasks
   const stubs = [
-    "claudeSessions.openSession",
-    "claudeSessions.addFolder",
     "claudeSessions.nextSession",
     "claudeSessions.prevSession",
     "claudeSessions.focusSession",
