@@ -74,8 +74,11 @@ export function activate(context: vscode.ExtensionContext): void {
   const stateWatcher = new StateWatcher(sessionManager);
   context.subscriptions.push(stateWatcher);
 
-  // Check/prompt for hook installation (async, non-blocking)
-  ensureHooksInstalled(context);
+  // Check/prompt for hook installation
+  // Delayed slightly to avoid being buried by other startup notifications
+  setTimeout(() => {
+    ensureHooksInstalled(context);
+  }, 3000);
 
   // Tree view providers
   const activeProvider = new ActiveSessionsProvider(sessionManager);
