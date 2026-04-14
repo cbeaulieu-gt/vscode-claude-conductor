@@ -31,8 +31,18 @@ export class SessionManager implements vscode.Disposable {
         this._trackIfClaudeSession(terminal);
       }),
       vscode.window.onDidCloseTerminal((terminal) => {
+        // Try identity-based delete first
         if (this._sessions.delete(terminal)) {
           this._onDidChangeSessions.fire();
+          return;
+        }
+        // Fallback: match by name (terminal reference can change after moveToEditor)
+        for (const [key, session] of this._sessions) {
+          if (session.terminal.name === terminal.name) {
+            this._sessions.delete(key);
+            this._onDidChangeSessions.fire();
+            return;
+          }
         }
       }),
       this._onDidChangeSessions
