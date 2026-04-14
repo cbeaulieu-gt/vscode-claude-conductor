@@ -8,7 +8,7 @@
     "vscode": "^1.85.0"
   },
   "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": ["onStartupFinished", "onUri"],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -38,6 +38,11 @@
         "command": "claudeSessions.closeSession",
         "title": "Close Session",
         "icon": "$(close)"
+      },
+      {
+        "command": "claudeSessions.openInNewWindow",
+        "title": "Open in New Window",
+        "icon": "$(link-external)"
       },
       {
         "command": "claudeSessions.refreshTreeView",
@@ -87,6 +92,11 @@
       "view/item/context": [
         {
           "command": "claudeSessions.focusSession",
+          "when": "viewItem == activeSession",
+          "group": "inline"
+        },
+        {
+          "command": "claudeSessions.openInNewWindow",
           "when": "viewItem == activeSession",
           "group": "inline"
         },
