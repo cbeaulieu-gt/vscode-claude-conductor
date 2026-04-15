@@ -21,16 +21,24 @@ interface SessionState {
 export class StateWatcher implements vscode.Disposable {
   private readonly _disposables: vscode.Disposable[] = [];
   private _watcher: vscode.FileSystemWatcher | undefined;
+  private _pollTimer: NodeJS.Timeout | undefined;
 
   /** Track idle session folder paths for consolidated notification */
   private readonly _idleSessions = new Set<string>();
 
+  /** Track last-seen file timestamps to detect changes during polling */
+  private readonly _fileTimestamps = new Map<string, number>();
+
   /** Whether a notification is currently showing (avoid stacking) */
   private _notificationActive = false;
+
+  /** Polling interval in ms — fallback for unreliable FileSystemWatcher on Windows */
+  private static readonly POLL_INTERVAL_MS = 2000;
 
   constructor(private readonly sessionManager: SessionManager) {
     this._ensureStateDir();
     this._startWatching();
+    this._startPolling();
   }
 
   private _ensureStateDir(): void {
@@ -203,10 +211,62 @@ export class StateWatcher implements vscode.Disposable {
     }
   }
 
+  /**
+   * Poll the state directory every few seconds as a fallback for
+   * FileSystemWatcher which is unreliable on Windows for non-workspace dirs.
+   */
+  private _startPolling(): void {
+    this._pollTimer = setInterval(() => {
+      try {
+        if (!fs.existsSync(STATE_DIR)) {
+          return;
+        }
+        const files = fs.readdirSync(STATE_DIR);
+        const currentFiles = new Set<string>();
+
+        for (const file of files) {
+          if (!file.endsWith(".json")) {
+            continue;
+          }
+          currentFiles.add(file);
+          const filePath = path.join(STATE_DIR, file);
+
+          try {
+            const mtime = fs.statSync(filePath).mtimeMs;
+            const lastMtime = this._fileTimestamps.get(file);
+
+            if (lastMtime === undefined || mtime > lastMtime) {
+              this._fileTimestamps.set(file, mtime);
+              this._onStateFileChanged(vscode.Uri.file(filePath));
+            }
+          } catch {
+            // File may have been deleted between readdir and stat
+          }
+        }
+
+        // Detect deleted files
+        for (const tracked of this._fileTimestamps.keys()) {
+          if (!currentFiles.has(tracked)) {
+            this._fileTimestamps.delete(tracked);
+            this._onStateFileDeleted(
+              vscode.Uri.file(path.join(STATE_DIR, tracked))
+            );
+          }
+        }
+      } catch {
+        // Ignore poll errors
+      }
+    }, StateWatcher.POLL_INTERVAL_MS);
+  }
+
   dispose(): void {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+    }
     for (const d of this._disposables) {
       d.dispose();
     }
     this._idleSessions.clear();
+    this._fileTimestamps.clear();
   }
 }
