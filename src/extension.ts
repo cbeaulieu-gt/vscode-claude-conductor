@@ -139,6 +139,11 @@ export function activate(context: vscode.ExtensionContext): void {
       setupHooksCommand(context)
     ),
 
+    vscode.commands.registerCommand("claudeSessions.removeHooks", () => {
+      uninstallHooks();
+      vscode.window.showInformationMessage("Claude session hooks removed.");
+    }),
+
     vscode.commands.registerCommand("claudeSessions.refreshTreeView", () => {
       activeProvider.refresh();
       recentProvider.refresh();
@@ -182,6 +187,7 @@ function cycleSession(sm: SessionManager, direction: 1 | -1): void {
 }
 
 export function deactivate(): void {
-  // Remove our hooks from ~/.claude/settings.json and clean up state files
-  uninstallHooks();
+  // Hooks are intentionally left in ~/.claude/settings.json on deactivate.
+  // VS Code calls deactivate() on every window close, not just uninstall.
+  // Use "Claude Sessions: Remove Notification Hooks" command to clean up manually.
 }
