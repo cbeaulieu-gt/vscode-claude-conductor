@@ -49,6 +49,10 @@
         "title": "Claude Sessions: Setup Notification Hooks"
       },
       {
+        "command": "claudeSessions.removeHooks",
+        "title": "Claude Sessions: Remove Notification Hooks"
+      },
+      {
         "command": "claudeSessions.refreshTreeView",
         "title": "Refresh",
         "icon": "$(refresh)"
