@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Background: dark rounded square like VS Code's terminal theme -->
+  <rect width="128" height="128" rx="20" fill="#1e1e2e"/>
+
+  <!-- Stacked terminal tabs representing multiple sessions -->
+  <!-- Back tab (faded) -->
+  <rect x="28" y="38" width="72" height="54" rx="6" fill="#313244" stroke="#585b70" stroke-width="1.5"/>
+  <!-- Middle tab -->
+  <rect x="24" y="42" width="72" height="54" rx="6" fill="#45475a" stroke="#6c7086" stroke-width="1.5"/>
+  <!-- Front tab (active green) -->
+  <rect x="20" y="46" width="72" height="54" rx="6" fill="#1e1e2e" stroke="#a6e3a1" stroke-width="2"/>
+
+  <!-- Prompt chevron on active tab -->
+  <path d="M 32 63 L 42 72 L 32 81" stroke="#a6e3a1" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Blinking cursor -->
+  <rect x="50" y="68" width="18" height="3" fill="#a6e3a1" rx="1"/>
+
+  <!-- Sparkle in corner - the Claude/magic motif -->
+  <g transform="translate(96, 28)">
+    <path d="M 0 -10 L 2 -2 L 10 0 L 2 2 L 0 10 L -2 2 L -10 0 L -2 -2 Z" fill="#f9e2af"/>
+    <circle cx="0" cy="0" r="2" fill="#fff"/>
+  </g>
+
+  <!-- Small notification dot on back tab hinting at idle state -->
+  <circle cx="95" cy="44" r="5" fill="#fab387"/>
+</svg>

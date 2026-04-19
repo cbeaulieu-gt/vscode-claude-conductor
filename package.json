@@ -8,6 +8,25 @@
     "vscode": "^1.85.0"
   },
   "categories": ["Other"],
+  "keywords": [
+    "claude",
+    "claude code",
+    "ai",
+    "terminal",
+    "session manager",
+    "anthropic"
+  ],
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cbeaulieu-gt/vscode-claude-sessions.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cbeaulieu-gt/vscode-claude-sessions/issues"
+  },
+  "homepage": "https://github.com/cbeaulieu-gt/vscode-claude-sessions#readme",
+  "license": "MIT",
+  "author": "Christopher Beaulieu",
   "activationEvents": ["onStartupFinished", "onUri"],
   "main": "./out/extension.js",
   "contributes": {
