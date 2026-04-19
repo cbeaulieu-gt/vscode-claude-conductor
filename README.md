@@ -2,8 +2,10 @@
 
 Orchestrate multiple [Claude Code](https://docs.anthropic.com/claude-code) sessions across different projects as editor tabs in a single VS Code window.
 
-![Version](https://img.shields.io/visual-studio-marketplace/v/cbeaulieu-gt.claude-conductor)
-![Installs](https://img.shields.io/visual-studio-marketplace/i/cbeaulieu-gt.claude-conductor)
+[![VS Marketplace](https://badgen.net/vs-marketplace/v/cbeaulieu-gt.claude-conductor)](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.claude-conductor)
+[![Installs](https://badgen.net/vs-marketplace/i/cbeaulieu-gt.claude-conductor)](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.claude-conductor)
+[![Preview](https://img.shields.io/badge/status-preview-orange)](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.claude-conductor)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
 ## Why
 
