@@ -2,6 +2,11 @@
 
 All notable changes to the Claude Conductor extension are documented here.
 
+## [1.1.5] — 2026-04-19
+
+### Fixed
+- README marketplace badges now render (shields.io had retired the `visual-studio-marketplace/*` endpoints; switched to badgen.net for live badges and shields.io static badges for Preview/License)
+
 ## [1.1.3] — 2026-04-19
 
 ### Changed
