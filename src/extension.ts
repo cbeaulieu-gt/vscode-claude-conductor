@@ -10,6 +10,32 @@ import { ensureHooksInstalled, setupHooksCommand, uninstallHooks } from "./hookI
 let sessionManager: SessionManager;
 
 /**
+ * Normalizes the argument passed to a tree-view-triggered command.
+ *
+ * Row-click commands receive an `ActiveSession` (via `TreeItem.command.arguments`),
+ * but inline action buttons and context-menu entries receive the `TreeItem` itself
+ * (VS Code ignores `command.arguments` for those). The `ActiveSessionItem` tree item
+ * exposes its `ActiveSession` at `.session`, so we unwrap if needed.
+ *
+ * Also tolerates direct `ActiveSession` arguments from programmatic callers.
+ */
+function resolveSession(arg: unknown): ActiveSession | undefined {
+  if (!arg || typeof arg !== "object") {
+    return undefined;
+  }
+  const obj = arg as Record<string, unknown>;
+  // TreeItem case: has a nested .session property
+  if ("session" in obj && obj.session && typeof obj.session === "object") {
+    return obj.session as ActiveSession;
+  }
+  // ActiveSession case: has a .terminal property
+  if ("terminal" in obj && "folderPath" in obj) {
+    return obj as unknown as ActiveSession;
+  }
+  return undefined;
+}
+
+/**
  * URI handler for cross-window session launch.
  * Handles: vscode://cbeaulieu-gt.claude-conductor/launch?folder=<encoded-path>
  *
@@ -111,19 +137,22 @@ export function activate(context: vscode.ExtensionContext): void {
       addFolderPrompt()
     ),
 
-    vscode.commands.registerCommand("claudeSessions.focusSession", (session?: ActiveSession) => {
+    vscode.commands.registerCommand("claudeSessions.focusSession", (arg?: unknown) => {
+      const session = resolveSession(arg);
       if (session) {
         sessionManager.focusSession(session);
       }
     }),
 
-    vscode.commands.registerCommand("claudeSessions.closeSession", (session?: ActiveSession) => {
+    vscode.commands.registerCommand("claudeSessions.closeSession", (arg?: unknown) => {
+      const session = resolveSession(arg);
       if (session) {
         sessionManager.closeSession(session);
       }
     }),
 
-    vscode.commands.registerCommand("claudeSessions.openInNewWindow", (session?: ActiveSession) => {
+    vscode.commands.registerCommand("claudeSessions.openInNewWindow", (arg?: unknown) => {
+      const session = resolveSession(arg);
       const folderPath = session?.folderPath;
       if (!folderPath) {
         return;
