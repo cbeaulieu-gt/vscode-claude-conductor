@@ -105,7 +105,7 @@ To remove the hooks at any time: run `Claude Sessions: Remove Notification Hooks
 
 ## Source
 
-[github.com/cbeaulieu-gt/vscode-claude-sessions](https://github.com/cbeaulieu-gt/vscode-claude-sessions)
+[github.com/cbeaulieu-gt/vscode-claude-conductor](https://github.com/cbeaulieu-gt/vscode-claude-conductor)
 
 ## License
 
