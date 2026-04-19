@@ -1,6 +1,13 @@
 # Changelog
 
-All notable changes to the Claude Session Manager extension are documented here.
+All notable changes to the Claude Conductor extension are documented here.
+
+## [1.1.3] — 2026-04-19
+
+### Changed
+- Rebranded from "Claude Session Manager" to **Claude Conductor** (marketplace name collision with two existing extensions)
+- Extension now shows a "Preview" badge on the marketplace reflecting its pre-release status
+- Repository renamed: `vscode-claude-sessions` → `vscode-claude-conductor`
 
 ## [1.1.1] — 2026-04-14
 
