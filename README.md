@@ -2,8 +2,8 @@
 
 Manage multiple [Claude Code](https://docs.anthropic.com/claude-code) sessions across different projects as editor tabs in a single VS Code window.
 
-![Version](https://img.shields.io/visual-studio-marketplace/v/cbeaulieu-gt.vscode-claude-sessions)
-![Installs](https://img.shields.io/visual-studio-marketplace/i/cbeaulieu-gt.vscode-claude-sessions)
+![Version](https://img.shields.io/visual-studio-marketplace/v/cbeaulieu-gt.claude-conductor)
+![Installs](https://img.shields.io/visual-studio-marketplace/i/cbeaulieu-gt.claude-conductor)
 
 ## Why
 

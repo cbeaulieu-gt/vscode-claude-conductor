@@ -11,7 +11,7 @@ let sessionManager: SessionManager;
 
 /**
  * URI handler for cross-window session launch.
- * Handles: vscode://cbeaulieu-gt.vscode-claude-sessions/launch?folder=<encoded-path>
+ * Handles: vscode://cbeaulieu-gt.claude-conductor/launch?folder=<encoded-path>
  *
  * When a URI is received, we open the folder as the workspace (if not already open)
  * and auto-launch a Claude session in an editor tab.
@@ -130,7 +130,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       const encodedPath = encodeURIComponent(folderPath);
       const uri = vscode.Uri.parse(
-        `vscode://cbeaulieu-gt.vscode-claude-sessions/launch?folder=${encodedPath}`
+        `vscode://cbeaulieu-gt.claude-conductor/launch?folder=${encodedPath}`
       );
       vscode.env.openExternal(uri);
     }),
