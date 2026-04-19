@@ -2,13 +2,32 @@
   "name": "vscode-claude-sessions",
   "displayName": "Claude Session Manager",
   "description": "Manage multiple Claude Code sessions across projects as editor tabs",
-  "version": "1.0.0",
+  "version": "1.1.1",
   "publisher": "cbeaulieu-gt",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
+  "keywords": [
+    "claude",
+    "claude code",
+    "ai",
+    "terminal",
+    "session manager",
+    "anthropic"
+  ],
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cbeaulieu-gt/vscode-claude-sessions.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cbeaulieu-gt/vscode-claude-sessions/issues"
+  },
+  "homepage": "https://github.com/cbeaulieu-gt/vscode-claude-sessions#readme",
+  "license": "MIT",
+  "author": "Christopher Beaulieu",
+  "activationEvents": ["onStartupFinished", "onUri"],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -38,6 +57,19 @@
         "command": "claudeSessions.closeSession",
         "title": "Close Session",
         "icon": "$(close)"
+      },
+      {
+        "command": "claudeSessions.openInNewWindow",
+        "title": "Open in New Window",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "claudeSessions.setupHooks",
+        "title": "Claude Sessions: Setup Notification Hooks"
+      },
+      {
+        "command": "claudeSessions.removeHooks",
+        "title": "Claude Sessions: Remove Notification Hooks"
       },
       {
         "command": "claudeSessions.refreshTreeView",
@@ -91,6 +123,11 @@
           "group": "inline"
         },
         {
+          "command": "claudeSessions.openInNewWindow",
+          "when": "viewItem == activeSession",
+          "group": "inline"
+        },
+        {
           "command": "claudeSessions.closeSession",
           "when": "viewItem == activeSession",
           "group": "inline"
@@ -114,6 +151,11 @@
           "type": "boolean",
           "default": true,
           "description": "Focus existing session tab instead of opening a duplicate"
+        },
+        "claudeSessions.enableNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show notifications when a Claude session is waiting for input"
         },
         "claudeSessions.extraFolders": {
           "type": "array",

@@ -6,3 +6,5 @@ tsconfig.json
 docs/**
 .claude/**
 .worktrees/**
+media/icon.svg
+vsc-extension-quickstart.md
