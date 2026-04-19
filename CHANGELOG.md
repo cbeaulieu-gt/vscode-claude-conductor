@@ -2,10 +2,13 @@
 
 All notable changes to the Claude Conductor extension are documented here.
 
-## [1.1.7] — 2026-04-19
+## [Unreleased]
 
 ### Fixed
 - Inline **Focus**, **Close**, and **Open in New Window** buttons in the Active Sessions tree view no longer throw `Cannot read properties of undefined`. Row-click and inline-button invocations pass different argument shapes (the `ActiveSession` data vs. the `TreeItem` wrapper); the command handlers now resolve both to the same session object before acting.
+
+### Added
+- `.vscode/launch.json` and `tasks.json` so contributors can press **F5** to run the extension in a development host (no VSIX build required for iteration)
 
 ## [1.1.5] — 2026-04-19
 
