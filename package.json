@@ -1,7 +1,7 @@
 {
   "name": "claude-conductor",
-  "displayName": "Claude Session Manager",
-  "description": "Manage multiple Claude Code sessions across projects as editor tabs",
+  "displayName": "Claude Conductor",
+  "description": "Orchestrate multiple Claude Code sessions across projects as editor tabs",
   "version": "1.1.1",
   "publisher": "cbeaulieu-gt",
   "engines": {
