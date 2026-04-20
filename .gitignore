@@ -2,3 +2,4 @@ node_modules/
 out/
 *.vsix
 .worktrees/
+.claude/settings.local.json
