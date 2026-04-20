@@ -95,7 +95,7 @@ export class SessionManager implements vscode.Disposable {
 
   /** Focus an existing session's editor tab. */
   focusSession(session: ActiveSession): void {
-    session.terminal.show(true);
+    session.terminal.show(false);
   }
 
   /** Close a session's terminal. */
