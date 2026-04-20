@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import { getClaudeCommand, getReuseTerminal } from "./config";
+import { getClaudeCommand, getReuseTerminal, getLaunchDelayMs } from "./config";
+import { log } from "./output";
 
 /** Prefix used for all Claude session terminal names */
 export const SESSION_NAME_PREFIX = "claude · ";
@@ -89,8 +90,62 @@ export class SessionManager implements vscode.Disposable {
     // Move terminal from panel to editor tab area
     await vscode.commands.executeCommand("workbench.action.terminal.moveToEditor");
 
-    // Send the claude command
-    terminal.sendText(getClaudeCommand());
+    // Dispatch the claude command only after the shell prompt is ready
+    await this._dispatchClaudeCommand(terminal);
+  }
+
+  /**
+   * Dispatch `claude` to the terminal using the best available mechanism:
+   *
+   * 1. Fast path — shell integration already active at call time.
+   * 2. Slow path — wait up to 2 s for shell integration to activate.
+   * 3. Delay fallback — sleep `claudeSessions.launchDelayMs` ms then sendText.
+   *    Covers VS Code < 1.93 and setups where shell integration never activates.
+   */
+  private async _dispatchClaudeCommand(terminal: vscode.Terminal): Promise<void> {
+    const cmd = getClaudeCommand();
+
+    // Fast path: shell integration already active
+    if (terminal.shellIntegration) {
+      log(`[dispatch] fast path — shell integration already active`);
+      terminal.shellIntegration.executeCommand(cmd);
+      return;
+    }
+
+    // Slow path: wait for shell integration to activate (up to 2000 ms)
+    const shellIntegrationAvailable = await new Promise<boolean>((resolve) => {
+      let disposed = false;
+
+      const timeoutHandle = setTimeout(() => {
+        if (!disposed) {
+          disposed = true;
+          listener.dispose();
+          log(`[dispatch] slow path timed out — falling back to delay sendText`);
+          resolve(false);
+        }
+      }, 2000);
+
+      const listener = vscode.window.onDidChangeTerminalShellIntegration((e) => {
+        if (e.terminal === terminal && !disposed) {
+          disposed = true;
+          clearTimeout(timeoutHandle);
+          listener.dispose();
+          log(`[dispatch] slow path — shell integration activated`);
+          e.shellIntegration.executeCommand(cmd);
+          resolve(true);
+        }
+      });
+    });
+
+    if (shellIntegrationAvailable) {
+      return;
+    }
+
+    // Delay fallback: sendText after a configurable delay
+    const delayMs = getLaunchDelayMs();
+    log(`[dispatch] delay fallback — waiting ${delayMs} ms then sendText`);
+    await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    terminal.sendText(cmd);
   }
 
   /** Focus an existing session's editor tab. */

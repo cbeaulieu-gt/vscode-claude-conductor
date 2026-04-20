@@ -163,6 +163,12 @@
           "items": { "type": "string" },
           "default": [],
           "description": "Additional folder paths to show in the session launcher"
+        },
+        "claudeSessions.launchDelayMs": {
+          "type": "number",
+          "default": 500,
+          "minimum": 0,
+          "description": "Milliseconds to wait before sending the claude command when shell integration is unavailable (VS Code < 1.93 or shell integration disabled). Increase if your shell profile is slow to initialise."
         }
       }
     },
@@ -191,7 +197,7 @@
     "lint": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.93.0",
     "@types/node": "^20.0.0",
     "typescript": "^5.3.0",
     "@vscode/vsce": "^2.24.0"

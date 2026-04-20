@@ -24,3 +24,8 @@ export function getExtraFolders(): string[] {
     .get<string[]>("extraFolders", [])
     .map((f) => f.replace(/^~/, os.homedir()));
 }
+
+export function getLaunchDelayMs(): number {
+  const raw = getConfig().get<number>("launchDelayMs", 500);
+  return Math.max(0, raw);
+}
