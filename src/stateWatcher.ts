@@ -14,6 +14,20 @@ interface SessionState {
   timestamp: number;
 }
 
+/** Shared output channel for diagnostic logging — created once, reused everywhere. */
+let _outputChannel: vscode.OutputChannel | undefined;
+
+function getOutputChannel(): vscode.OutputChannel {
+  if (!_outputChannel) {
+    _outputChannel = vscode.window.createOutputChannel("Claude Conductor");
+  }
+  return _outputChannel;
+}
+
+function log(message: string): void {
+  getOutputChannel().appendLine(`[${new Date().toISOString()}] ${message}`);
+}
+
 /**
  * Watches ~/.claude/session-state/ for state file changes written by
  * our Claude Code hooks, and triggers notifications + tree view updates.
@@ -29,6 +43,13 @@ export class StateWatcher implements vscode.Disposable {
   /** Track last-seen file timestamps to detect changes during polling */
   private readonly _fileTimestamps = new Map<string, number>();
 
+  /**
+   * Map from state-file basename (e.g. "abc123456789.json") to the cwd
+   * stored inside that file. Used to resolve the folder path on deletion,
+   * when the file content is no longer readable.
+   */
+  private readonly _fileToFolderPath = new Map<string, string>();
+
   /** Whether a notification is currently showing (avoid stacking) */
   private _notificationActive = false;
 
@@ -36,6 +57,7 @@ export class StateWatcher implements vscode.Disposable {
   private static readonly POLL_INTERVAL_MS = 2000;
 
   constructor(private readonly sessionManager: SessionManager) {
+    this._disposables.push(getOutputChannel());
     this._ensureStateDir();
     this._startWatching();
     this._startPolling();
@@ -74,44 +96,82 @@ export class StateWatcher implements vscode.Disposable {
         return;
       }
       const files = fs.readdirSync(STATE_DIR);
+      log(`Startup scan: found ${files.length} file(s) in ${STATE_DIR}`);
       for (const file of files) {
         if (file.endsWith(".json")) {
           this._onStateFileChanged(vscode.Uri.file(path.join(STATE_DIR, file)));
         }
       }
-    } catch {
-      // Ignore scan errors
+    } catch (err) {
+      log(`Startup scan error: ${err}`);
     }
   }
 
   private _onStateFileChanged(uri: vscode.Uri): void {
     const state = this._readStateFile(uri.fsPath);
     if (!state) {
+      log(`Read: ${path.basename(uri.fsPath)} — parse failed or missing fields`);
       return;
     }
 
+    const filename = path.basename(uri.fsPath);
+    // Remember the cwd stored in this file so we can resolve it on deletion
+    this._fileToFolderPath.set(filename, state.cwd);
+
+    log(`Read: ${filename} state=${state.state} cwd=${state.cwd}`);
+
     const session = this.sessionManager.findSessionByFolder(state.cwd);
     if (!session) {
+      log(`Dispatch: no session found for cwd="${state.cwd}" — skipping`);
       return;
     }
+
+    log(`Dispatch: matched session folderPath="${session.folderPath}" state=${state.state}`);
 
     if (state.state === "idle") {
       this.sessionManager.setSessionIdle(session.folderPath, true);
 
       if (getEnableNotifications() && !this._idleSessions.has(session.folderPath)) {
         this._idleSessions.add(session.folderPath);
+        log(`Notification: queuing for "${session.folderPath}"`);
         this._showConsolidatedNotification();
       }
     } else if (state.state === "active") {
       this.sessionManager.setSessionIdle(session.folderPath, false);
       this._idleSessions.delete(session.folderPath);
+      log(`Active: cleared idle for "${session.folderPath}"`);
     }
   }
 
   private _onStateFileDeleted(uri: vscode.Uri): void {
-    // Read all remaining state files to rebuild idle set
-    // (we can't parse the deleted file)
-    // The session close handler in sessionManager will clean up the session
+    const filename = path.basename(uri.fsPath);
+    log(`Deleted: ${filename}`);
+
+    // Resolve the folder path from our cache (file content is gone)
+    const cwd = this._fileToFolderPath.get(filename);
+    this._fileToFolderPath.delete(filename);
+
+    if (!cwd) {
+      log(`Deleted: no cached cwd for ${filename} — cannot clear idle state`);
+      return;
+    }
+
+    const session = this.sessionManager.findSessionByFolder(cwd);
+    if (session) {
+      log(`Deleted: clearing idle for "${session.folderPath}"`);
+      this.sessionManager.setSessionIdle(session.folderPath, false);
+      this._idleSessions.delete(session.folderPath);
+    } else {
+      // Session may already be gone; still clean up our idle set by cwd
+      const normalizedCwd = path.normalize(cwd).toLowerCase();
+      for (const idlePath of this._idleSessions) {
+        if (idlePath.toLowerCase() === normalizedCwd) {
+          this._idleSessions.delete(idlePath);
+          log(`Deleted: removed "${idlePath}" from idle set (session already gone)`);
+          break;
+        }
+      }
+    }
   }
 
   private _readStateFile(filePath: string): SessionState | null {
@@ -121,8 +181,9 @@ export class StateWatcher implements vscode.Disposable {
       if (parsed.state && parsed.cwd) {
         return parsed as SessionState;
       }
-    } catch {
-      // File may be partially written or invalid
+      log(`Read: ${path.basename(filePath)} — missing state or cwd fields`);
+    } catch (err) {
+      log(`Read: ${path.basename(filePath)} — error: ${err}`);
     }
     return null;
   }
@@ -172,6 +233,8 @@ export class StateWatcher implements vscode.Disposable {
           await this._showIdleSessionPicker();
         }
       }
+    } catch (err) {
+      log(`Notification error: ${err}`);
     } finally {
       this._notificationActive = false;
 
@@ -262,8 +325,8 @@ export class StateWatcher implements vscode.Disposable {
             );
           }
         }
-      } catch {
-        // Ignore poll errors
+      } catch (err) {
+        log(`Poll error: ${err}`);
       }
     }, StateWatcher.POLL_INTERVAL_MS);
   }
@@ -275,7 +338,9 @@ export class StateWatcher implements vscode.Disposable {
     for (const d of this._disposables) {
       d.dispose();
     }
+    _outputChannel = undefined;
     this._idleSessions.clear();
     this._fileTimestamps.clear();
+    this._fileToFolderPath.clear();
   }
 }
