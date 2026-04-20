@@ -40,6 +40,13 @@ export class StateWatcher implements vscode.Disposable {
   /** Track idle session folder paths for consolidated notification */
   private readonly _idleSessions = new Set<string>();
 
+  /**
+   * Track which idle session paths have already been shown in a notification
+   * this idle episode. Cleared when the session transitions back to active or
+   * is stopped, so a future idle episode will re-notify.
+   */
+  private readonly _notifiedSessions = new Set<string>();
+
   /** Track last-seen file timestamps to detect changes during polling */
   private readonly _fileTimestamps = new Map<string, number>();
 
@@ -139,6 +146,7 @@ export class StateWatcher implements vscode.Disposable {
     } else if (state.state === "active") {
       this.sessionManager.setSessionIdle(session.folderPath, false);
       this._idleSessions.delete(session.folderPath);
+      this._notifiedSessions.delete(session.folderPath);
       log(`Active: cleared idle for "${session.folderPath}"`);
     }
   }
@@ -161,12 +169,14 @@ export class StateWatcher implements vscode.Disposable {
       log(`Deleted: clearing idle for "${session.folderPath}"`);
       this.sessionManager.setSessionIdle(session.folderPath, false);
       this._idleSessions.delete(session.folderPath);
+      this._notifiedSessions.delete(session.folderPath);
     } else {
       // Session may already be gone; still clean up our idle set by cwd
       const normalizedCwd = path.normalize(cwd).toLowerCase();
       for (const idlePath of this._idleSessions) {
         if (idlePath.toLowerCase() === normalizedCwd) {
           this._idleSessions.delete(idlePath);
+          this._notifiedSessions.delete(idlePath);
           log(`Deleted: removed "${idlePath}" from idle set (session already gone)`);
           break;
         }
@@ -206,6 +216,12 @@ export class StateWatcher implements vscode.Disposable {
         return;
       }
 
+      // Mark every currently-idle path as notified before we await the dialog.
+      // This prevents the finally-block retry from re-firing for the same episode.
+      for (const p of this._idleSessions) {
+        this._notifiedSessions.add(p);
+      }
+
       if (idleCount === 1) {
         // Single session — direct focus
         const folderPath = Array.from(this._idleSessions)[0];
@@ -238,14 +254,27 @@ export class StateWatcher implements vscode.Disposable {
     } finally {
       this._notificationActive = false;
 
-      // If new idle sessions appeared while notification was showing, re-notify
-      if (this._idleSessions.size > 0) {
-        // Small delay to avoid immediate re-trigger
+      // Re-notify only if at least one idle session has NOT yet been notified
+      // this episode (i.e. it went idle while we were awaiting the dialog).
+      // Sessions the user dismissed remain in _notifiedSessions so we do NOT
+      // re-fire for them — preventing the dismissal-spam loop (issue #39).
+      const unnotifiedCount = Array.from(this._idleSessions).filter(
+        (p) => !this._notifiedSessions.has(p)
+      ).length;
+
+      if (unnotifiedCount > 0) {
+        log(
+          `Notification retry: ${unnotifiedCount} unnotified idle session(s) — re-firing`
+        );
         setTimeout(() => {
-          if (this._idleSessions.size > 0 && !this._notificationActive) {
+          if (!this._notificationActive) {
             this._showConsolidatedNotification();
           }
         }, 1000);
+      } else {
+        log(
+          `Notification retry: all ${this._idleSessions.size} idle session(s) already notified — stopping`
+        );
       }
     }
   }
@@ -270,6 +299,7 @@ export class StateWatcher implements vscode.Disposable {
       if (session) {
         this.sessionManager.focusSession(session);
         this._idleSessions.delete(picked.folderPath);
+        this._notifiedSessions.delete(picked.folderPath);
       }
     }
   }
@@ -340,6 +370,7 @@ export class StateWatcher implements vscode.Disposable {
     }
     _outputChannel = undefined;
     this._idleSessions.clear();
+    this._notifiedSessions.clear();
     this._fileTimestamps.clear();
     this._fileToFolderPath.clear();
   }
