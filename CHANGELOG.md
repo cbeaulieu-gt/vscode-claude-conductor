@@ -5,6 +5,7 @@ All notable changes to the Claude Conductor extension are documented here.
 ## [Unreleased]
 
 ### Fixed
+- **Focus Session** button now moves keyboard focus into the terminal, not just reveals the tab. `Terminal.show(true)` in `focusSession()` was passing `preserveFocus=true`, which intentionally keeps focus elsewhere; changed to `false` so the terminal becomes active after the user clicks Focus. Fixes #32.
 - Inline **Focus**, **Close**, and **Open in New Window** buttons in the Active Sessions tree view no longer throw `Cannot read properties of undefined`. Row-click and inline-button invocations pass different argument shapes (the `ActiveSession` data vs. the `TreeItem` wrapper); the command handlers now resolve both to the same session object before acting.
 
 ### Fixed
