@@ -7,6 +7,9 @@ All notable changes to the Claude Conductor extension are documented here.
 ### Fixed
 - Inline **Focus**, **Close**, and **Open in New Window** buttons in the Active Sessions tree view no longer throw `Cannot read properties of undefined`. Row-click and inline-button invocations pass different argument shapes (the `ActiveSession` data vs. the `TreeItem` wrapper); the command handlers now resolve both to the same session object before acting.
 
+### Fixed
+- F5 launch no longer fails with "extension already exists" when the marketplace copy of `cbeaulieu-gt.claude-conductor` is installed. `.vscode/launch.json` now passes `--disable-extension cbeaulieu-gt.claude-conductor` to the Extension Development Host so the installed copy is suppressed inside the dev host only.
+
 ### Added
 - `.vscode/launch.json` and `tasks.json` so contributors can press **F5** to run the extension in a development host (no VSIX build required for iteration)
 
