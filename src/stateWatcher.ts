@@ -208,6 +208,17 @@ export class StateWatcher implements vscode.Disposable {
     if (this._notificationActive) {
       return;
     }
+
+    // Idempotency guard: if every idle path has already been notified this
+    // episode, there is nothing new to show. Fixes #42.
+    if (
+      this._idleSessions.size > 0 &&
+      Array.from(this._idleSessions).every((p) => this._notifiedSessions.has(p))
+    ) {
+      log(`Show: all ${this._idleSessions.size} idle session(s) already notified — skipping`);
+      return;
+    }
+
     this._notificationActive = true;
 
     try {
@@ -267,8 +278,16 @@ export class StateWatcher implements vscode.Disposable {
           `Notification retry: ${unnotifiedCount} unnotified idle session(s) — re-firing`
         );
         setTimeout(() => {
-          if (!this._notificationActive) {
+          if (this._notificationActive) {
+            return;
+          }
+          const stillUnnotified = Array.from(this._idleSessions).some(
+            (p) => !this._notifiedSessions.has(p)
+          );
+          if (stillUnnotified) {
             this._showConsolidatedNotification();
+          } else {
+            log(`Notification retry (deferred): no unnotified idle sessions remain — skipping`);
           }
         }, 1000);
       } else {
