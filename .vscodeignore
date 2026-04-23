@@ -8,3 +8,6 @@ docs/**
 .worktrees/**
 media/icon.svg
 vsc-extension-quickstart.md
+test/**
+vitest.config.ts
+tsconfig.test.json

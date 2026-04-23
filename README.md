@@ -105,6 +105,20 @@ To remove the hooks at any time: run `Claude Sessions: Remove Notification Hooks
 - The idle notification fires after Claude Code's built-in ~60-second idle threshold — not tunable from the extension
 - VS Code terminal tabs cannot change color or flash after creation, so "attention" is communicated via sidebar bell icons and notifications rather than tab-level indicators
 
+## Contributing / Development
+
+### Testing
+
+The project uses [Vitest](https://vitest.dev/) for unit tests. Tests run against a minimal `vscode` module mock so no VS Code instance is required.
+
+```bash
+npm install         # install dependencies
+npm test            # run tests once (CI mode)
+npm run test:watch  # run tests in watch mode during development
+```
+
+Current scope is unit tests only. Integration tests via `@vscode/test-electron` are deferred to a future milestone.
+
 ## Source
 
 [github.com/cbeaulieu-gt/vscode-claude-conductor](https://github.com/cbeaulieu-gt/vscode-claude-conductor)
