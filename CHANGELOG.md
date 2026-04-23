@@ -5,6 +5,8 @@ All notable changes to the Claude Conductor extension are documented here.
 ## [Unreleased]
 
 ### Fixed
+- **Shell init race condition** — `claude` is no longer sent to the terminal mid-profile-init. When VS Code shell integration is available (VS Code ≥ 1.93), the command is dispatched via `shellIntegration.executeCommand()` which waits for the shell prompt. On older VS Code or when shell integration is disabled, a configurable delay (`claudeSessions.launchDelayMs`, default 500 ms) is used instead. Fixes #40.
+
 - **Focus Session** button now moves keyboard focus into the terminal, not just reveals the tab. `Terminal.show(true)` in `focusSession()` was passing `preserveFocus=true`, which intentionally keeps focus elsewhere; changed to `false` so the terminal becomes active after the user clicks Focus. Fixes #32.
 - Inline **Focus**, **Close**, and **Open in New Window** buttons in the Active Sessions tree view no longer throw `Cannot read properties of undefined`. Row-click and inline-button invocations pass different argument shapes (the `ActiveSession` data vs. the `TreeItem` wrapper); the command handlers now resolve both to the same session object before acting.
 
