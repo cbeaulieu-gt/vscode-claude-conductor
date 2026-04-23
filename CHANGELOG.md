@@ -2,10 +2,47 @@
 
 All notable changes to the Claude Conductor extension are documented here.
 
+## [1.2.0] — 2026-04-23
+
+### Changed (BREAKING)
+
+All user-facing identifiers have been renamed from the `claudeSessions.*` namespace to `claudeConductor.*`. There are no backward-compatibility aliases — users must update any custom keybindings or settings that reference the old names.
+
+**Command ID rename mapping:**
+
+| Old | New |
+|---|---|
+| `claudeSessions.openSession` | `claudeConductor.openSession` |
+| `claudeSessions.addFolder` | `claudeConductor.addFolder` |
+| `claudeSessions.nextSession` | `claudeConductor.nextSession` |
+| `claudeSessions.prevSession` | `claudeConductor.prevSession` |
+| `claudeSessions.focusSession` | `claudeConductor.focusSession` |
+| `claudeSessions.closeSession` | `claudeConductor.closeSession` |
+| `claudeSessions.openInNewWindow` | `claudeConductor.openInNewWindow` |
+| `claudeSessions.setupHooks` | `claudeConductor.setupHooks` |
+| `claudeSessions.removeHooks` | `claudeConductor.removeHooks` |
+| `claudeSessions.refreshTreeView` | `claudeConductor.refreshTreeView` |
+
+**Config key rename mapping:**
+
+| Old | New |
+|---|---|
+| `claudeSessions.claudeCommand` | `claudeConductor.claudeCommand` |
+| `claudeSessions.reuseExistingTerminal` | `claudeConductor.reuseExistingTerminal` |
+| `claudeSessions.enableNotifications` | `claudeConductor.enableNotifications` |
+| `claudeSessions.extraFolders` | `claudeConductor.extraFolders` |
+| `claudeSessions.launchDelayMs` | `claudeConductor.launchDelayMs` |
+
+**Other renamed identifiers:**
+- Activity Bar container ID: `claudeSessions` → `claudeConductor`
+- View IDs: `claudeSessions.activeSessions` → `claudeConductor.activeSessions`, `claudeSessions.recentProjects` → `claudeConductor.recentProjects`
+- Configuration section title: `Claude Sessions` → `Claude Conductor`
+- Command palette prefixes: `Claude Sessions:` → `Claude Conductor:`
+
 ## [Unreleased]
 
 ### Fixed
-- **Shell init race condition** — `claude` is no longer sent to the terminal mid-profile-init. When VS Code shell integration is available (VS Code ≥ 1.93), the command is dispatched via `shellIntegration.executeCommand()` which waits for the shell prompt. On older VS Code or when shell integration is disabled, a configurable delay (`claudeSessions.launchDelayMs`, default 500 ms) is used instead. Fixes #40.
+- **Shell init race condition** — `claude` is no longer sent to the terminal mid-profile-init. When VS Code shell integration is available (VS Code ≥ 1.93), the command is dispatched via `shellIntegration.executeCommand()` which waits for the shell prompt. On older VS Code or when shell integration is disabled, a configurable delay (`claudeConductor.launchDelayMs`, default 500 ms) is used instead. Fixes #40.
 - **Idle notifications restored** — the sidebar bell icon and VS Code notification now correctly appear when a Claude session finishes and waits for input. The `Stop` hook deletes the state file; the extension was ignoring that deletion (`_onStateFileDeleted` was a no-op), so sessions stayed stuck in idle state indefinitely. The handler now looks up the session via a cached filename-to-path map and calls `setSessionIdle(folderPath, false)`, clearing both the tree-view icon and the idle set. A new **"Claude Conductor"** output channel logs state-file reads, dispatch decisions, and path-match results for easier diagnostics. Fixes #37.
 - **Idle notification no longer spams on dismissal** — dismissing the idle notification (clicking × or elsewhere without choosing Focus) no longer causes it to re-appear every second. A new per-session "already notified" guard ensures the notification only re-fires when a session that has not yet been shown goes idle, so each idle episode produces exactly one notification. Fixes #39.
 - **Idle notification no longer double-fires after dismissal** — after dismissing the idle dialog, a second identical dialog could occasionally appear a few seconds later when the deferred retry `setTimeout` fired even though the originally-idle session was already marked notified. The retry now re-verifies that at least one currently-idle session is still unnotified before re-firing, and `_showConsolidatedNotification` short-circuits when every idle path has already been notified this episode. Fixes #42.

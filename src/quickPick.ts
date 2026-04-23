@@ -51,11 +51,11 @@ export async function showQuickPick(sessionManager: SessionManager): Promise<voi
       "Open Settings"
     );
     if (choice === "Add Folder") {
-      vscode.commands.executeCommand("claudeSessions.addFolder");
+      vscode.commands.executeCommand("claudeConductor.addFolder");
     } else if (choice === "Open Settings") {
       vscode.commands.executeCommand(
         "workbench.action.openSettings",
-        "claudeSessions"
+        "claudeConductor"
       );
     }
     return;
@@ -106,7 +106,7 @@ export async function addFolderPrompt(): Promise<void> {
     return;
   }
 
-  const config = vscode.workspace.getConfiguration("claudeSessions");
+  const config = vscode.workspace.getConfiguration("claudeConductor");
   const current = config.get<string[]>("extraFolders", []);
   const expanded = input.replace(/^~/, os.homedir());
 

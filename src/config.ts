@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as os from "os";
 
-const SECTION = "claudeSessions";
+const SECTION = "claudeConductor";
 
 function getConfig(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration(SECTION);

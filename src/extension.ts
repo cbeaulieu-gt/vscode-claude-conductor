@@ -42,7 +42,7 @@ function resolveSession(arg: unknown): ActiveSession | undefined {
  * When a URI is received, we open the folder as the workspace (if not already open)
  * and auto-launch a Claude session in an editor tab.
  */
-const AUTO_LAUNCH_KEY = "claudeSessions.autoLaunchFolder";
+const AUTO_LAUNCH_KEY = "claudeConductor.autoLaunchFolder";
 
 class SessionUriHandler implements vscode.UriHandler {
   constructor(
@@ -111,8 +111,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const recentProvider = new RecentProjectsProvider(sessionManager);
 
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider("claudeSessions.activeSessions", activeProvider),
-    vscode.window.registerTreeDataProvider("claudeSessions.recentProjects", recentProvider)
+    vscode.window.registerTreeDataProvider("claudeConductor.activeSessions", activeProvider),
+    vscode.window.registerTreeDataProvider("claudeConductor.recentProjects", recentProvider)
   );
 
   // Status bar
@@ -125,7 +125,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Commands
   context.subscriptions.push(
-    vscode.commands.registerCommand("claudeSessions.openSession", async (folderPath?: string) => {
+    vscode.commands.registerCommand("claudeConductor.openSession", async (folderPath?: string) => {
       if (typeof folderPath === "string") {
         await sessionManager.launchSession(folderPath);
       } else {
@@ -133,25 +133,25 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
 
-    vscode.commands.registerCommand("claudeSessions.addFolder", () =>
+    vscode.commands.registerCommand("claudeConductor.addFolder", () =>
       addFolderPrompt()
     ),
 
-    vscode.commands.registerCommand("claudeSessions.focusSession", (arg?: unknown) => {
+    vscode.commands.registerCommand("claudeConductor.focusSession", (arg?: unknown) => {
       const session = resolveSession(arg);
       if (session) {
         sessionManager.focusSession(session);
       }
     }),
 
-    vscode.commands.registerCommand("claudeSessions.closeSession", (arg?: unknown) => {
+    vscode.commands.registerCommand("claudeConductor.closeSession", (arg?: unknown) => {
       const session = resolveSession(arg);
       if (session) {
         sessionManager.closeSession(session);
       }
     }),
 
-    vscode.commands.registerCommand("claudeSessions.openInNewWindow", (arg?: unknown) => {
+    vscode.commands.registerCommand("claudeConductor.openInNewWindow", (arg?: unknown) => {
       const session = resolveSession(arg);
       const folderPath = session?.folderPath;
       if (!folderPath) {
@@ -164,25 +164,25 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.env.openExternal(uri);
     }),
 
-    vscode.commands.registerCommand("claudeSessions.setupHooks", () =>
+    vscode.commands.registerCommand("claudeConductor.setupHooks", () =>
       setupHooksCommand(context)
     ),
 
-    vscode.commands.registerCommand("claudeSessions.removeHooks", () => {
+    vscode.commands.registerCommand("claudeConductor.removeHooks", () => {
       uninstallHooks();
       vscode.window.showInformationMessage("Claude session hooks removed.");
     }),
 
-    vscode.commands.registerCommand("claudeSessions.refreshTreeView", () => {
+    vscode.commands.registerCommand("claudeConductor.refreshTreeView", () => {
       activeProvider.refresh();
       recentProvider.refresh();
     }),
 
-    vscode.commands.registerCommand("claudeSessions.nextSession", () => {
+    vscode.commands.registerCommand("claudeConductor.nextSession", () => {
       cycleSession(sessionManager, 1);
     }),
 
-    vscode.commands.registerCommand("claudeSessions.prevSession", () => {
+    vscode.commands.registerCommand("claudeConductor.prevSession", () => {
       cycleSession(sessionManager, -1);
     }),
   );
@@ -218,5 +218,5 @@ function cycleSession(sm: SessionManager, direction: 1 | -1): void {
 export function deactivate(): void {
   // Hooks are intentionally left in ~/.claude/settings.json on deactivate.
   // VS Code calls deactivate() on every window close, not just uninstall.
-  // Use "Claude Sessions: Remove Notification Hooks" command to clean up manually.
+  // Use "Claude Conductor: Remove Notification Hooks" command to clean up manually.
 }

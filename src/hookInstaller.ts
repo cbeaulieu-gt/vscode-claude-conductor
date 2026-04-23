@@ -6,7 +6,7 @@ import * as os from "os";
 const SETTINGS_PATH = path.join(os.homedir(), ".claude", "settings.json");
 const STATE_DIR = path.join(os.homedir(), ".claude", "session-state");
 const HOOK_MARKER = "session-state.js";
-const SETUP_DECLINED_KEY = "claudeSessions.hookSetupDeclined";
+const SETUP_DECLINED_KEY = "claudeConductor.hookSetupDeclined";
 
 /**
  * Get the path to our hook script, using Unix-style paths for git bash compatibility.
