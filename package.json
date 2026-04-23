@@ -203,7 +203,9 @@
     "package": "npm run compile && vsce package --no-dependencies",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "publish:stable": "node scripts/guard-channel.js stable && vsce publish",
+    "publish:prerelease": "node scripts/guard-channel.js prerelease && vsce publish --pre-release"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

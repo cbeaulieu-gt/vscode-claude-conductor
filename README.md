@@ -122,6 +122,8 @@ CI runs lint, typecheck, tests, and compile automatically on every pull request 
 
 Current scope is unit tests only. Integration tests via `@vscode/test-electron` are deferred to a future milestone.
 
+**Releases** — this extension follows the VS Code marketplace odd/even minor convention for stable vs pre-release channels. See [docs/release-strategy.md](docs/release-strategy.md).
+
 ## Source
 
 [github.com/cbeaulieu-gt/vscode-claude-conductor](https://github.com/cbeaulieu-gt/vscode-claude-conductor)

@@ -11,3 +11,4 @@ vsc-extension-quickstart.md
 test/**
 vitest.config.ts
 tsconfig.test.json
+scripts/**
