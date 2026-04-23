@@ -214,9 +214,18 @@ export class StateWatcher implements vscode.Disposable {
   /**
    * Poll the state directory every few seconds as a fallback for
    * FileSystemWatcher which is unreliable on Windows for non-workspace dirs.
+   *
+   * Each tick also calls sessionManager.reconcile() to evict any _sessions
+   * entry whose terminal is no longer in vscode.window.terminals. This is the
+   * self-healing path for the editor-tab X case where onDidCloseTerminal
+   * either doesn't fire or fires with a mismatched reference.
    */
   private _startPolling(): void {
     this._pollTimer = setInterval(() => {
+      // Reconcile sessions first so stale entries don't produce idle-state
+      // callbacks below for terminals that are already gone.
+      this.sessionManager.reconcile();
+
       try {
         if (!fs.existsSync(STATE_DIR)) {
           return;
