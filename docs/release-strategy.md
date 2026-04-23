@@ -89,3 +89,103 @@ Unit tests live in `test/guard-channel.test.ts` and run with `npm test`.
 ## See also
 
 [VS Code docs — Pre-release extensions](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#prerelease-extensions)
+
+---
+
+## GitHub Actions secret setup
+
+The publish workflow authenticates to the VS Code Marketplace using a Personal
+Access Token stored as a repository secret. Follow these steps before pushing
+the first release tag.
+
+### Create an Azure DevOps PAT
+
+1. Sign in to [dev.azure.com](https://dev.azure.com) with the publisher account
+   (the account that owns the `cbeaulieu-gt` Marketplace publisher).
+2. Open **User settings → Personal access tokens → New Token**.
+3. Give the token a descriptive name, e.g. `vscode-marketplace-publish`.
+4. Set **Organization** to **"All accessible organizations"** — `vsce` requires
+   this; a single-organization PAT will be rejected at publish time.
+5. Set an expiry (one year is a reasonable default).
+6. Under **Scopes**, select **Marketplace → Publish** (and only that scope).
+7. Click **Create** and copy the token immediately — you cannot retrieve it again.
+
+### Add the secret to the repository
+
+1. In the GitHub repo, go to **Settings → Secrets and variables → Actions**.
+2. Click **New repository secret**.
+3. Name: `VSCE_PAT`
+4. Value: the Azure DevOps PAT you copied above.
+5. Click **Add secret**.
+
+### PAT rotation
+
+Rotate the PAT at least once a year (or immediately if it may have been
+exposed). Recommended practice:
+
+- Note the expiry date in a pinned issue or a calendar reminder set one week
+  before expiry.
+- When rotating: create the new PAT first, update the `VSCE_PAT` secret, then
+  revoke the old PAT.
+
+If the secret is missing, expired, or invalid the **Publish** step of the
+workflow will fail loudly — this is intentional so a bad credential is surfaced
+immediately rather than silently skipping the publish.
+
+---
+
+## Cutting a release
+
+Follow these steps every time you publish a new version to the Marketplace.
+
+1. **Merge all PRs** targeting the release into `main`.
+2. **Pull latest `main`:**
+   ```bash
+   git pull --ff-only origin main
+   ```
+3. **Bump `version` in `package.json`:**
+   - Even minor (e.g. `1.4.0`) → publishes to the **stable** channel.
+   - Odd minor (e.g. `1.5.0`) → publishes to the **pre-release** channel.
+   - If you are staying in the same minor lane, increment the patch instead
+     (e.g. `1.3.0` → `1.3.1`).
+4. **Update `CHANGELOG.md`:** move the `[Unreleased]` entries into a new
+   versioned section with today's date:
+   ```markdown
+   ## [X.Y.Z] — YYYY-MM-DD
+   ```
+5. **Commit:**
+   ```bash
+   git commit -am "chore: bump to X.Y.Z"
+   ```
+6. **Push the commit:**
+   ```bash
+   git push origin main
+   ```
+7. **Create the tag:**
+   ```bash
+   git tag vX.Y.Z
+   ```
+8. **Push the tag:**
+   ```bash
+   git push origin vX.Y.Z
+   ```
+9. **Watch the workflow:** go to the **Actions** tab in the GitHub repo and
+   open the **Publish** workflow run that triggered on the tag push. On success
+   the workflow will:
+   - Publish the extension to the VS Code Marketplace (stable or pre-release
+     channel, determined automatically from the minor parity).
+   - Create a GitHub Release for the tag using the matching CHANGELOG entry as
+     the release notes.
+
+### Manual-dispatch retry path
+
+If the tag-triggered run fails due to a transient Marketplace error (e.g.
+a momentary 5xx from the VS Code Marketplace API) you can re-trigger the
+publish without pushing a new tag:
+
+1. Go to **Actions → Publish workflow → Run workflow**.
+2. Enter the existing tag in the **Tag to publish** input (e.g. `v1.3.0`).
+3. Click **Run workflow**.
+
+The workflow checks out that tag, runs the full lint/test/compile pipeline, and
+publishes exactly as the automatic run would have.

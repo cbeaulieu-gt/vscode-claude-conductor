@@ -1,0 +1,71 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v1.3.0)'
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Derive channel
+        run: |
+          TAG=${{ inputs.tag || github.ref_name }}
+          VERSION=${TAG#v}
+          MINOR=$(echo "$VERSION" | cut -d. -f2)
+          if [ $((MINOR % 2)) -eq 0 ]; then
+            CHANNEL=stable
+          else
+            CHANNEL=prerelease
+          fi
+          echo "CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TAG_NAME=$TAG" >> "$GITHUB_ENV"
+
+      - name: Publish
+        run: npm run publish:${{ env.CHANNEL }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Extract release notes
+        if: success()
+        run: node scripts/extract-changelog.js "$VERSION" > release_notes.md
+
+      - name: Create GitHub Release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          name: ${{ env.TAG_NAME }}
+          body_path: release_notes.md
+          prerelease: ${{ env.CHANNEL == 'prerelease' }}
