@@ -163,7 +163,16 @@ export class SessionManager implements vscode.Disposable {
 
   /** Close a session's terminal. */
   closeSession(session: ActiveSession): void {
-    session.terminal.dispose();
+    // The terminal reference on the passed session may be the pre-moveToEditor
+    // panel terminal whose internal VS Code handle is no longer valid — calling
+    // dispose() on it throws "Cannot read properties of undefined (reading
+    // 'dispose')" inside the terminal proxy. Always resolve the live entry from
+    // _sessions by folderPath so we dispose the current, valid terminal
+    // reference. Falls back to session.terminal when the entry has already been
+    // evicted (e.g. a rapid double-close), in which case ?. makes it a no-op.
+    const live = this._findSessionByFolder(session.folderPath);
+    const terminal = live?.terminal ?? session.terminal;
+    terminal?.dispose();
     // onDidCloseTerminal listener handles cleanup and event firing
   }
 
