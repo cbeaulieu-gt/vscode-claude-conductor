@@ -2,7 +2,7 @@
 
 Orchestrate multiple [Claude Code](https://docs.anthropic.com/claude-code) sessions across different projects as editor tabs in a single VS Code window.
 
-[![CI](https://github.com/cbeaulieu-gt/vscode-claude-conductor/actions/workflows/ci.yml/badge.svg)](https://github.com/cbeaulieu-gt/vscode-claude-conductor/actions/workflows/ci.yml)
+[![CI](https://github.com/cbeaulieu-gt/vscode-claude-conductor/actions/workflows/ci.yml/badge.svg)](https://github.com/cbeaulieu-gt/vscode-claude-conductor/actions/workflows/ci.yml) [![Publish](https://github.com/cbeaulieu-gt/vscode-claude-conductor/actions/workflows/publish.yml/badge.svg)](https://github.com/cbeaulieu-gt/vscode-claude-conductor/actions/workflows/publish.yml)
 [![VS Marketplace](https://badgen.net/vs-marketplace/v/cbeaulieu-gt.claude-conductor)](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.claude-conductor)
 [![Installs](https://badgen.net/vs-marketplace/i/cbeaulieu-gt.claude-conductor)](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.claude-conductor)
 [![Preview](https://img.shields.io/badge/status-preview-orange)](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.claude-conductor)
