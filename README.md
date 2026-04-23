@@ -2,6 +2,7 @@
 
 Orchestrate multiple [Claude Code](https://docs.anthropic.com/claude-code) sessions across different projects as editor tabs in a single VS Code window.
 
+[![CI](https://github.com/cbeaulieu-gt/vscode-claude-conductor/actions/workflows/ci.yml/badge.svg)](https://github.com/cbeaulieu-gt/vscode-claude-conductor/actions/workflows/ci.yml)
 [![VS Marketplace](https://badgen.net/vs-marketplace/v/cbeaulieu-gt.claude-conductor)](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.claude-conductor)
 [![Installs](https://badgen.net/vs-marketplace/i/cbeaulieu-gt.claude-conductor)](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.claude-conductor)
 [![Preview](https://img.shields.io/badge/status-preview-orange)](https://marketplace.visualstudio.com/items?itemName=cbeaulieu-gt.claude-conductor)
@@ -116,6 +117,8 @@ npm install         # install dependencies
 npm test            # run tests once (CI mode)
 npm run test:watch  # run tests in watch mode during development
 ```
+
+CI runs lint, typecheck, tests, and compile automatically on every pull request and push to `main` via GitHub Actions.
 
 Current scope is unit tests only. Integration tests via `@vscode/test-electron` are deferred to a future milestone.
 
