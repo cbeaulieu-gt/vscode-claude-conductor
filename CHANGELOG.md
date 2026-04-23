@@ -2,7 +2,15 @@
 
 All notable changes to the Claude Conductor extension are documented here.
 
+## [Unreleased]
+
+_No unreleased changes._
+
 ## [1.2.0] — 2026-04-23
+
+### Added
+- **Vitest test infrastructure** — `npm test` / `npm run test:watch`, `test/mocks/vscode.ts` VS Code API mock, first regression test porting PR #35's manual test note. PR #50.
+- **GitHub Actions CI workflow** — four parallel jobs (lint, typecheck, test, compile) on ubuntu-latest + Node 20, runs on every PR and push to main. README status badge added. PR #53.
 
 ### Changed (BREAKING)
 
@@ -39,8 +47,6 @@ All user-facing identifiers have been renamed from the `claudeSessions.*` namesp
 - Configuration section title: `Claude Sessions` → `Claude Conductor`
 - Command palette prefixes: `Claude Sessions:` → `Claude Conductor:`
 
-## [Unreleased]
-
 ### Fixed
 - **Shell init race condition** — `claude` is no longer sent to the terminal mid-profile-init. When VS Code shell integration is available (VS Code ≥ 1.93), the command is dispatched via `shellIntegration.executeCommand()` which waits for the shell prompt. On older VS Code or when shell integration is disabled, a configurable delay (`claudeConductor.launchDelayMs`, default 500 ms) is used instead. Fixes #40.
 - **Idle notifications restored** — the sidebar bell icon and VS Code notification now correctly appear when a Claude session finishes and waits for input. The `Stop` hook deletes the state file; the extension was ignoring that deletion (`_onStateFileDeleted` was a no-op), so sessions stayed stuck in idle state indefinitely. The handler now looks up the session via a cached filename-to-path map and calls `setSessionIdle(folderPath, false)`, clearing both the tree-view icon and the idle set. A new **"Claude Conductor"** output channel logs state-file reads, dispatch decisions, and path-match results for easier diagnostics. Fixes #37.
@@ -48,12 +54,7 @@ All user-facing identifiers have been renamed from the `claudeSessions.*` namesp
 - **Idle notification no longer double-fires after dismissal** — after dismissing the idle dialog, a second identical dialog could occasionally appear a few seconds later when the deferred retry `setTimeout` fired even though the originally-idle session was already marked notified. The retry now re-verifies that at least one currently-idle session is still unnotified before re-firing, and `_showConsolidatedNotification` short-circuits when every idle path has already been notified this episode. Fixes #42.
 - **Focus Session** button now moves keyboard focus into the terminal, not just reveals the tab. `Terminal.show(true)` in `focusSession()` was passing `preserveFocus=true`, which intentionally keeps focus elsewhere; changed to `false` so the terminal becomes active after the user clicks Focus. Fixes #32.
 - Inline **Focus**, **Close**, and **Open in New Window** buttons in the Active Sessions tree view no longer throw `Cannot read properties of undefined`. Row-click and inline-button invocations pass different argument shapes (the `ActiveSession` data vs. the `TreeItem` wrapper); the command handlers now resolve both to the same session object before acting.
-
-### Fixed
 - F5 launch no longer fails with "extension already exists" when the marketplace copy of `cbeaulieu-gt.claude-conductor` is installed. `.vscode/launch.json` now passes `--disable-extension cbeaulieu-gt.claude-conductor` to the Extension Development Host so the installed copy is suppressed inside the dev host only.
-
-### Added
-- `.vscode/launch.json` and `tasks.json` so contributors can press **F5** to run the extension in a development host (no VSIX build required for iteration)
 
 ## [1.1.5] — 2026-04-19
 
