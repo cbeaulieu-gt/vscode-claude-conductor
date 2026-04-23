@@ -1,10 +1,21 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
 import { getClaudeCommand, getReuseTerminal, getLaunchDelayMs } from "./config";
 import { log } from "./output";
 
 /** Prefix used for all Claude session terminal names */
 export const SESSION_NAME_PREFIX = "claude · ";
+
+const STATE_DIR = path.join(os.homedir(), ".claude", "session-state");
+
+interface SessionState {
+  state: "idle" | "active";
+  cwd: string;
+  sessionId: string;
+  timestamp: number;
+}
 
 export interface ActiveSession {
   terminal: vscode.Terminal;
@@ -17,6 +28,15 @@ export interface ActiveSession {
 export class SessionManager implements vscode.Disposable {
   private readonly _sessions = new Map<vscode.Terminal, ActiveSession>();
   private readonly _disposables: vscode.Disposable[] = [];
+
+  /**
+   * Secondary index: processId → terminal map entry key.
+   * When moveToEditor causes VS Code to swap terminal references, the new
+   * onDidCloseTerminal fires with a reference that isn't in _sessions by
+   * identity. Storing the PID lets us fall back to a pid-based lookup when
+   * both the identity check and the name-match fail.
+   */
+  private readonly _pidToTerminal = new Map<number, vscode.Terminal>();
 
   private readonly _onDidChangeSessions = new vscode.EventEmitter<void>();
   /** Fires whenever the active session list changes (open or close). */
@@ -33,19 +53,7 @@ export class SessionManager implements vscode.Disposable {
         this._trackIfClaudeSession(terminal);
       }),
       vscode.window.onDidCloseTerminal((terminal) => {
-        // Try identity-based delete first
-        if (this._sessions.delete(terminal)) {
-          this._onDidChangeSessions.fire();
-          return;
-        }
-        // Fallback: match by name (terminal reference can change after moveToEditor)
-        for (const [key, session] of this._sessions) {
-          if (session.terminal.name === terminal.name) {
-            this._sessions.delete(key);
-            this._onDidChangeSessions.fire();
-            return;
-          }
-        }
+        this._handleTerminalClose(terminal);
       }),
       this._onDidChangeSessions
     );
@@ -155,7 +163,16 @@ export class SessionManager implements vscode.Disposable {
 
   /** Close a session's terminal. */
   closeSession(session: ActiveSession): void {
-    session.terminal.dispose();
+    // The terminal reference on the passed session may be the pre-moveToEditor
+    // panel terminal whose internal VS Code handle is no longer valid — calling
+    // dispose() on it throws "Cannot read properties of undefined (reading
+    // 'dispose')" inside the terminal proxy. Always resolve the live entry from
+    // _sessions by folderPath so we dispose the current, valid terminal
+    // reference. Falls back to session.terminal when the entry has already been
+    // evicted (e.g. a rapid double-close), in which case ?. makes it a no-op.
+    const live = this._findSessionByFolder(session.folderPath);
+    const terminal = live?.terminal ?? session.terminal;
+    terminal?.dispose();
     // onDidCloseTerminal listener handles cleanup and event firing
   }
 
@@ -171,6 +188,32 @@ export class SessionManager implements vscode.Disposable {
   /** Find a session by its folder path (case-insensitive). */
   findSessionByFolder(folderPath: string): ActiveSession | undefined {
     return this._findSessionByFolder(path.normalize(folderPath));
+  }
+
+  /**
+   * Reconcile _sessions against vscode.window.terminals.
+   *
+   * Called each poll tick by StateWatcher. Any session whose terminal is no
+   * longer present in the live terminal list is treated as closed (the
+   * onDidCloseTerminal event was missed, e.g. editor-tab X on Windows).
+   * The corresponding state file in ~/.claude/session-state/ is also deleted
+   * so the Stop hook gap doesn't leave orphaned idle files on disk.
+   */
+  reconcile(): void {
+    const liveTerminals = new Set(vscode.window.terminals);
+    let changed = false;
+
+    for (const [terminal, session] of this._sessions) {
+      if (!liveTerminals.has(terminal)) {
+        this._sessions.delete(terminal);
+        this._cleanupStateFile(session.folderPath);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      this._onDidChangeSessions.fire();
+    }
   }
 
   /** Check if a terminal is a Claude session by name pattern. */
@@ -204,7 +247,112 @@ export class SessionManager implements vscode.Disposable {
       startedAt: new Date(),
       isIdle: false,
     });
+
+    // Register PID as a secondary lookup key once it resolves.
+    // processId is a Thenable<number | undefined> — we don't await here to
+    // avoid blocking the synchronous tracking path.
+    // Use two-argument .then() because PromiseLike lacks .catch().
+    terminal.processId.then(
+      (pid) => { if (pid !== undefined) { this._pidToTerminal.set(pid, terminal); } },
+      () => { /* PID unavailable for this terminal */ }
+    );
+
     this._onDidChangeSessions.fire();
+  }
+
+  /**
+   * Handle a terminal-close event with three-tier fallback:
+   * 1. Identity match (the common case for panel terminals).
+   * 2. Name match (handles some reference swaps after moveToEditor).
+   * 3. PID match (handles the editor-tab X case where name becomes "").
+   */
+  private _handleTerminalClose(terminal: vscode.Terminal): void {
+    // Tier 1 — identity
+    if (this._removeByKey(terminal)) {
+      return;
+    }
+
+    // Tier 2 — name match (only when name is non-empty)
+    if (terminal.name) {
+      for (const [key, session] of this._sessions) {
+        if (session.terminal.name === terminal.name) {
+          this._removeByKey(key);
+          return;
+        }
+      }
+    }
+
+    // Tier 3 — PID match. processId is a Thenable; we must handle it async.
+    // Use two-argument .then() because PromiseLike lacks .catch().
+    // Falls back to reconcile() on the next poll tick if this also misses.
+    terminal.processId.then(
+      (pid) => {
+        if (pid === undefined) { return; }
+        const trackedTerminal = this._pidToTerminal.get(pid);
+        if (trackedTerminal && this._sessions.has(trackedTerminal)) {
+          this._removeByKey(trackedTerminal);
+        }
+      },
+      () => { /* PID unavailable — reconcile() will catch it */ }
+    );
+  }
+
+  /**
+   * Remove a session keyed by terminal, clean up the PID index and state
+   * file, and fire the change event. Returns true if a session was removed.
+   */
+  private _removeByKey(terminal: vscode.Terminal): boolean {
+    const session = this._sessions.get(terminal);
+    if (!session) {
+      return false;
+    }
+    this._sessions.delete(terminal);
+
+    // Remove from PID index (two-argument .then() because PromiseLike lacks .catch())
+    terminal.processId.then(
+      (pid) => { if (pid !== undefined) { this._pidToTerminal.delete(pid); } },
+      () => { /* ignore */ }
+    );
+
+    this._cleanupStateFile(session.folderPath);
+    this._onDidChangeSessions.fire();
+    return true;
+  }
+
+  /**
+   * Delete the ~/.claude/session-state/*.json file whose `cwd` matches
+   * folderPath. This is a best-effort extension-side fallback for the case
+   * where the Claude Code Stop hook didn't run (e.g. terminal killed via
+   * editor-tab X). Without this, StateWatcher keeps re-marking the session
+   * idle on every poll tick even after the terminal is gone.
+   */
+  private _cleanupStateFile(folderPath: string): void {
+    try {
+      if (!fs.existsSync(STATE_DIR)) {
+        return;
+      }
+      const files = fs.readdirSync(STATE_DIR);
+      for (const file of files) {
+        if (!file.endsWith(".json")) {
+          continue;
+        }
+        const filePath = path.join(STATE_DIR, file);
+        try {
+          const raw = fs.readFileSync(filePath, "utf8");
+          const parsed = JSON.parse(raw) as Partial<SessionState>;
+          if (
+            parsed.cwd &&
+            path.normalize(parsed.cwd).toLowerCase() === folderPath.toLowerCase()
+          ) {
+            fs.unlinkSync(filePath);
+          }
+        } catch {
+          // File may be partially written, already deleted, or unreadable
+        }
+      }
+    } catch {
+      // STATE_DIR may not exist yet or may be unreadable
+    }
   }
 
   /** Find session by normalized folder path. */
@@ -223,5 +371,6 @@ export class SessionManager implements vscode.Disposable {
       d.dispose();
     }
     this._sessions.clear();
+    this._pidToTerminal.clear();
   }
 }
