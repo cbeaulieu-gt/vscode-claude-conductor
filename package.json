@@ -2,7 +2,7 @@
   "name": "claude-conductor",
   "displayName": "Claude Conductor",
   "description": "Orchestrate multiple Claude Code sessions across projects as editor tabs",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "publisher": "cbeaulieu-gt",
   "preview": true,
   "engines": {

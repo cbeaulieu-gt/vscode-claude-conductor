@@ -6,7 +6,7 @@ All notable changes to the Claude Conductor extension are documented here.
 
 _No unreleased changes._
 
-## [1.2.0] — 2026-04-23
+## [1.3.0] — 2026-04-23
 
 ### Added
 - **Vitest test infrastructure** — `npm test` / `npm run test:watch`, `test/mocks/vscode.ts` VS Code API mock, first regression test porting PR #35's manual test note. PR #50.
@@ -55,6 +55,9 @@ All user-facing identifiers have been renamed from the `claudeSessions.*` namesp
 - **Focus Session** button now moves keyboard focus into the terminal, not just reveals the tab. `Terminal.show(true)` in `focusSession()` was passing `preserveFocus=true`, which intentionally keeps focus elsewhere; changed to `false` so the terminal becomes active after the user clicks Focus. Fixes #32.
 - Inline **Focus**, **Close**, and **Open in New Window** buttons in the Active Sessions tree view no longer throw `Cannot read properties of undefined`. Row-click and inline-button invocations pass different argument shapes (the `ActiveSession` data vs. the `TreeItem` wrapper); the command handlers now resolve both to the same session object before acting.
 - F5 launch no longer fails with "extension already exists" when the marketplace copy of `cbeaulieu-gt.claude-conductor` is installed. `.vscode/launch.json` now passes `--disable-extension cbeaulieu-gt.claude-conductor` to the Extension Development Host so the installed copy is suppressed inside the dev host only.
+
+### Notes
+- **1.2.0 was skipped intentionally.** Starting with this release, the extension follows the VS Code marketplace odd/even minor convention — even minors (1.2.x, 1.4.x) are stable, odd minors (1.3.x, 1.5.x) are pre-release. 1.3.0 is the first release under this convention and ships via the pre-release channel; users without "Install Pre-Release Versions" enabled will stay on 1.1.5 until the next stable release.
 
 ## [1.1.5] — 2026-04-19
 
