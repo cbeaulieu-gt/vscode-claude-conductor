@@ -16,7 +16,7 @@ class ActiveSessionItem extends vscode.TreeItem {
       : new vscode.ThemeIcon("terminal", new vscode.ThemeColor("testing.iconPassed"));
     this.contextValue = "activeSession";
     this.command = {
-      command: "claudeSessions.focusSession",
+      command: "claudeConductor.focusSession",
       title: "Focus Session",
       arguments: [session],
     };
@@ -34,7 +34,7 @@ class RecentProjectItem extends vscode.TreeItem {
     this.iconPath = new vscode.ThemeIcon("folder");
     this.contextValue = "recentProject";
     this.command = {
-      command: "claudeSessions.openSession",
+      command: "claudeConductor.openSession",
       title: "Launch Session",
       arguments: [entry.folderPath],
     };

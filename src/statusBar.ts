@@ -10,8 +10,8 @@ export class StatusBar implements vscode.Disposable {
       vscode.StatusBarAlignment.Left,
       100
     );
-    this._item.command = "claudeSessions.openSession";
-    this._item.tooltip = "Claude Sessions — click to launch or switch";
+    this._item.command = "claudeConductor.openSession";
+    this._item.tooltip = "Claude Conductor — click to launch or switch";
 
     this._update(sessionManager.count);
 

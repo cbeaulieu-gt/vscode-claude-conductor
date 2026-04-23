@@ -2,7 +2,7 @@
   "name": "claude-conductor",
   "displayName": "Claude Conductor",
   "description": "Orchestrate multiple Claude Code sessions across projects as editor tabs",
-  "version": "1.1.5",
+  "version": "1.2.0",
   "publisher": "cbeaulieu-gt",
   "preview": true,
   "engines": {
@@ -38,47 +38,47 @@
   "contributes": {
     "commands": [
       {
-        "command": "claudeSessions.openSession",
-        "title": "Claude Sessions: Launch Session",
+        "command": "claudeConductor.openSession",
+        "title": "Claude Conductor: Launch Session",
         "icon": "$(play)"
       },
       {
-        "command": "claudeSessions.addFolder",
-        "title": "Claude Sessions: Add Folder",
+        "command": "claudeConductor.addFolder",
+        "title": "Claude Conductor: Add Folder",
         "icon": "$(add)"
       },
       {
-        "command": "claudeSessions.nextSession",
-        "title": "Claude Sessions: Next Session"
+        "command": "claudeConductor.nextSession",
+        "title": "Claude Conductor: Next Session"
       },
       {
-        "command": "claudeSessions.prevSession",
-        "title": "Claude Sessions: Previous Session"
+        "command": "claudeConductor.prevSession",
+        "title": "Claude Conductor: Previous Session"
       },
       {
-        "command": "claudeSessions.focusSession",
+        "command": "claudeConductor.focusSession",
         "title": "Focus Session"
       },
       {
-        "command": "claudeSessions.closeSession",
+        "command": "claudeConductor.closeSession",
         "title": "Close Session",
         "icon": "$(close)"
       },
       {
-        "command": "claudeSessions.openInNewWindow",
+        "command": "claudeConductor.openInNewWindow",
         "title": "Open in New Window",
         "icon": "$(link-external)"
       },
       {
-        "command": "claudeSessions.setupHooks",
-        "title": "Claude Sessions: Setup Notification Hooks"
+        "command": "claudeConductor.setupHooks",
+        "title": "Claude Conductor: Setup Notification Hooks"
       },
       {
-        "command": "claudeSessions.removeHooks",
-        "title": "Claude Sessions: Remove Notification Hooks"
+        "command": "claudeConductor.removeHooks",
+        "title": "Claude Conductor: Remove Notification Hooks"
       },
       {
-        "command": "claudeSessions.refreshTreeView",
+        "command": "claudeConductor.refreshTreeView",
         "title": "Refresh",
         "icon": "$(refresh)"
       }
@@ -86,20 +86,20 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "claudeSessions",
-          "title": "Claude Sessions",
+          "id": "claudeConductor",
+          "title": "Claude Conductor",
           "icon": "$(sparkle)"
         }
       ]
     },
     "views": {
-      "claudeSessions": [
+      "claudeConductor": [
         {
-          "id": "claudeSessions.activeSessions",
+          "id": "claudeConductor.activeSessions",
           "name": "Active Sessions"
         },
         {
-          "id": "claudeSessions.recentProjects",
+          "id": "claudeConductor.recentProjects",
           "name": "Recent Projects"
         }
       ]
@@ -107,63 +107,63 @@
     "menus": {
       "view/title": [
         {
-          "command": "claudeSessions.openSession",
-          "when": "view == claudeSessions.recentProjects",
+          "command": "claudeConductor.openSession",
+          "when": "view == claudeConductor.recentProjects",
           "group": "navigation"
         },
         {
-          "command": "claudeSessions.addFolder",
-          "when": "view == claudeSessions.recentProjects",
+          "command": "claudeConductor.addFolder",
+          "when": "view == claudeConductor.recentProjects",
           "group": "navigation"
         },
         {
-          "command": "claudeSessions.refreshTreeView",
-          "when": "view == claudeSessions.activeSessions || view == claudeSessions.recentProjects",
+          "command": "claudeConductor.refreshTreeView",
+          "when": "view == claudeConductor.activeSessions || view == claudeConductor.recentProjects",
           "group": "navigation"
         }
       ],
       "view/item/context": [
         {
-          "command": "claudeSessions.focusSession",
+          "command": "claudeConductor.focusSession",
           "when": "viewItem == activeSession",
           "group": "inline"
         },
         {
-          "command": "claudeSessions.openInNewWindow",
+          "command": "claudeConductor.openInNewWindow",
           "when": "viewItem == activeSession",
           "group": "inline"
         },
         {
-          "command": "claudeSessions.closeSession",
+          "command": "claudeConductor.closeSession",
           "when": "viewItem == activeSession",
           "group": "inline"
         },
         {
-          "command": "claudeSessions.openSession",
+          "command": "claudeConductor.openSession",
           "when": "viewItem == recentProject",
           "group": "inline"
         }
       ]
     },
     "configuration": {
-      "title": "Claude Sessions",
+      "title": "Claude Conductor",
       "properties": {
-        "claudeSessions.claudeCommand": {
+        "claudeConductor.claudeCommand": {
           "type": "string",
           "default": "claude",
           "description": "The Claude Code CLI command to run"
         },
-        "claudeSessions.reuseExistingTerminal": {
+        "claudeConductor.reuseExistingTerminal": {
           "type": "boolean",
           "default": true,
           "description": "Focus existing session tab instead of opening a duplicate"
         },
-        "claudeSessions.enableNotifications": {
+        "claudeConductor.enableNotifications": {
           "type": "boolean",
           "default": true,
           "description": "Show notifications when a Claude session is waiting for input"
         },
-        "claudeSessions.extraFolders": {
+        "claudeConductor.extraFolders": {
           "type": "array",
           "items": {
             "type": "string"
@@ -171,7 +171,7 @@
           "default": [],
           "description": "Additional folder paths to show in the session launcher"
         },
-        "claudeSessions.launchDelayMs": {
+        "claudeConductor.launchDelayMs": {
           "type": "number",
           "default": 500,
           "minimum": 0,
@@ -181,17 +181,17 @@
     },
     "keybindings": [
       {
-        "command": "claudeSessions.openSession",
+        "command": "claudeConductor.openSession",
         "key": "ctrl+shift+alt+c",
         "mac": "cmd+shift+alt+c"
       },
       {
-        "command": "claudeSessions.nextSession",
+        "command": "claudeConductor.nextSession",
         "key": "ctrl+alt+]",
         "mac": "cmd+alt+]"
       },
       {
-        "command": "claudeSessions.prevSession",
+        "command": "claudeConductor.prevSession",
         "key": "ctrl+alt+[",
         "mac": "cmd+alt+["
       }

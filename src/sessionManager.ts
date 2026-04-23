@@ -107,7 +107,7 @@ export class SessionManager implements vscode.Disposable {
    *
    * 1. Fast path — shell integration already active at call time.
    * 2. Slow path — wait up to 2 s for shell integration to activate.
-   * 3. Delay fallback — sleep `claudeSessions.launchDelayMs` ms then sendText.
+   * 3. Delay fallback — sleep `claudeConductor.launchDelayMs` ms then sendText.
    *    Covers VS Code < 1.93 and setups where shell integration never activates.
    */
   private async _dispatchClaudeCommand(terminal: vscode.Terminal): Promise<void> {

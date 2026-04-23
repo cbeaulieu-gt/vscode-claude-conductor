@@ -15,7 +15,7 @@ Running Claude Code against several projects at once is painful in a plain termi
 
 ### Activity Bar Sidebar
 
-A dedicated "Claude Sessions" panel with two sections:
+A dedicated "Claude Conductor" panel with two sections:
 
 - **Active Sessions** — currently running Claude terminals. Click to focus. A green terminal icon means the session is working; an orange bell means it's waiting for your input.
 - **Recent Projects** — your VS Code recently opened folders plus any configured extras. Click to launch a new session.
@@ -65,20 +65,20 @@ Cycles through Claude tabs only, not every terminal or editor tab.
 
 | Setting | Default | Description |
 |---|---|---|
-| `claudeSessions.claudeCommand` | `"claude"` | CLI command to run in the terminal |
-| `claudeSessions.reuseExistingTerminal` | `true` | Focus an existing session tab instead of opening a duplicate |
-| `claudeSessions.enableNotifications` | `true` | Show notifications when a session is waiting for input |
-| `claudeSessions.extraFolders` | `[]` | Additional folder paths to show in the launcher |
+| `claudeConductor.claudeCommand` | `"claude"` | CLI command to run in the terminal |
+| `claudeConductor.reuseExistingTerminal` | `true` | Focus an existing session tab instead of opening a duplicate |
+| `claudeConductor.enableNotifications` | `true` | Show notifications when a session is waiting for input |
+| `claudeConductor.extraFolders` | `[]` | Additional folder paths to show in the launcher |
 
 ## Commands
 
 Available from the command palette (`Ctrl+Shift+P`):
 
-- `Claude Sessions: Launch Session`
-- `Claude Sessions: Add Folder`
-- `Claude Sessions: Next Session` / `Previous Session`
-- `Claude Sessions: Setup Notification Hooks`
-- `Claude Sessions: Remove Notification Hooks`
+- `Claude Conductor: Launch Session`
+- `Claude Conductor: Add Folder`
+- `Claude Conductor: Next Session` / `Previous Session`
+- `Claude Conductor: Setup Notification Hooks`
+- `Claude Conductor: Remove Notification Hooks`
 
 ## How Idle Detection Works
 
@@ -92,7 +92,7 @@ When you allow notification hooks, the extension adds three entries to your `~/.
 
 The hooks write state files to `~/.claude/session-state/` which the extension watches. **Only your VS Code extension reads these files** — no data leaves your machine.
 
-To remove the hooks at any time: run `Claude Sessions: Remove Notification Hooks` from the command palette.
+To remove the hooks at any time: run `Claude Conductor: Remove Notification Hooks` from the command palette.
 
 ## Requirements
 
