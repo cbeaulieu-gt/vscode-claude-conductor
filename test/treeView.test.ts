@@ -134,7 +134,7 @@ describe("ActiveSessionsProvider — grouped tree", () => {
     const [group] = provider.getChildren(undefined);
     const children = provider.getChildren(group);
 
-    const wtChild = children.find((c) => c.label === "feature-a" || (c.description ?? "").includes("feature-a"));
+    const wtChild = children.find((c) => c.label === "feature-a" || String(c.description ?? "").includes("feature-a"));
     // The worktree leaf should reference the branch name somehow (label or description)
     const wtSession = sessions.find((s) => s.folderPath === wt1)!;
     const wtLeaf = children.find(
