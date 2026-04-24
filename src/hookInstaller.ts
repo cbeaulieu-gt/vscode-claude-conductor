@@ -11,8 +11,11 @@ const SETUP_DECLINED_KEY = "claudeConductor.hookSetupDeclined";
 /**
  * Get the path to our hook script, using Unix-style paths for git bash compatibility.
  * Claude Code on Windows uses git bash paths like /c/Users/...
+ *
+ * Exported so tests can build platform-correct fixtures without hardcoding
+ * OS-specific command strings.
  */
-function getHookScriptPath(context: vscode.ExtensionContext): string {
+export function getHookScriptPath(context: vscode.ExtensionContext): string {
   const hookPath = path.join(context.extensionPath, "hooks", "session-state.js");
 
   if (process.platform === "win32") {

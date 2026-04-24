@@ -17,6 +17,8 @@ import * as fs from "fs";
 // We mock fs so we don't touch the real ~/.claude/settings.json
 vi.mock("fs");
 
+// Unix-style paths used in unit tests for hooksUpToDate / reconcileHookPaths
+// (those functions are purely string-based and platform-agnostic).
 const OLD_PATH = "/c/Users/chris/.vscode/extensions/conductor-0.1.0";
 const NEW_PATH = "/c/Users/chris/.vscode/extensions/conductor-0.2.0";
 
@@ -25,6 +27,19 @@ const NEW_SCRIPT_BASE_WIN = `/c/PROGRA~1/nodejs/node.exe ${NEW_PATH}/hooks/sessi
 
 const OLD_SCRIPT_BASE_POSIX = `node ${OLD_PATH}/hooks/session-state.js`;
 const NEW_SCRIPT_BASE_POSIX = `node ${NEW_PATH}/hooks/session-state.js`;
+
+// Integration tests need platform-native extension paths so that path.join()
+// inside getHookScriptPath() resolves correctly on the current OS.
+// On Windows use backslash-separated "C:\Users\..." style; on POSIX use the
+// forward-slash paths directly.
+const OLD_EXT_PATH =
+  process.platform === "win32"
+    ? "C:\\Users\\chris\\.vscode\\extensions\\conductor-0.1.0"
+    : "/c/Users/chris/.vscode/extensions/conductor-0.1.0";
+const NEW_EXT_PATH =
+  process.platform === "win32"
+    ? "C:\\Users\\chris\\.vscode\\extensions\\conductor-0.2.0"
+    : "/c/Users/chris/.vscode/extensions/conductor-0.2.0";
 
 function makeSettingsWithHooks(scriptBase: string): Record<string, unknown> {
   return {
@@ -52,7 +67,7 @@ function makeSettingsWithHooks(scriptBase: string): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 // Import helpers under test AFTER setting up the vi.mock above
 // ---------------------------------------------------------------------------
-import { hooksUpToDate, reconcileHookPaths } from "../src/hookInstaller.js";
+import { hooksUpToDate, reconcileHookPaths, getHookScriptPath } from "../src/hookInstaller.js";
 
 describe("hooksUpToDate", () => {
   it("returns true when all hook commands match the expected script base", () => {
@@ -186,28 +201,28 @@ describe("ensureHooksInstalled — path reconciliation", () => {
   });
 
   it("silently rewrites stale paths and returns true without prompting the user", async () => {
+    // Build platform-correct script bases from the actual helper so the fixture
+    // always matches the platform under test (Windows or Linux CI).
+    const oldContext = makeContext(OLD_EXT_PATH);
+    const newContext = makeContext(NEW_EXT_PATH);
+    const oldScriptBase = getHookScriptPath(oldContext);
+    const newScriptBase = getHookScriptPath(newContext);
+
     // Arrange: settings on disk have hooks pointing at OLD_PATH
-    const oldSettings = makeSettingsWithHooks(OLD_SCRIPT_BASE_WIN);
+    const oldSettings = makeSettingsWithHooks(oldScriptBase);
     (fs.readFileSync as ReturnType<typeof vi.fn>).mockReturnValue(
       JSON.stringify(oldSettings)
     );
     const writeMock = fs.writeFileSync as ReturnType<typeof vi.fn>;
     writeMock.mockImplementation(() => {});
 
-    // VS Code would install the new version at NEW_PATH
-    // On Windows getHookScriptPath builds: /c/PROGRA~1/nodejs/node.exe /<drive><rest>
-    // We need the context to resolve to a path that produces NEW_SCRIPT_BASE_WIN.
-    // The function hard-codes the node prefix, so we set extensionPath to a value
-    // that will produce NEW_PATH after drive-letter conversion.
-    // NEW_PATH = "/c/Users/chris/.vscode/extensions/conductor-0.2.0"
-    // → Windows equivalent: C:\Users\chris\.vscode\extensions\conductor-0.2.0
-    const winExtPath = "C:\\Users\\chris\\.vscode\\extensions\\conductor-0.2.0";
-    const context = makeContext(winExtPath);
+    // Sanity: old and new script bases must differ — otherwise the test is vacuous
+    expect(oldScriptBase).not.toBe(newScriptBase);
 
     const { window } = await import("../test/mocks/vscode.js");
     const showInfoSpy = vi.spyOn(window, "showInformationMessage");
 
-    const result = await ensureHooksInstalled(context);
+    const result = await ensureHooksInstalled(newContext);
 
     expect(result).toBe(true);
     // writeFileSync should have been called (settings were rewritten)
@@ -225,16 +240,18 @@ describe("ensureHooksInstalled — path reconciliation", () => {
   });
 
   it("does not write settings when paths are already up to date", async () => {
-    // The NEW context path is the same as what's already in the settings
-    const winExtPath = "C:\\Users\\chris\\.vscode\\extensions\\conductor-0.2.0";
-    const currentSettings = makeSettingsWithHooks(NEW_SCRIPT_BASE_WIN);
+    // Build the fixture from the same helper the implementation uses so the
+    // expected script base matches on any platform (Windows or Linux CI).
+    const context = makeContext(NEW_EXT_PATH);
+    const currentScriptBase = getHookScriptPath(context);
+    const currentSettings = makeSettingsWithHooks(currentScriptBase);
+
     (fs.readFileSync as ReturnType<typeof vi.fn>).mockReturnValue(
       JSON.stringify(currentSettings)
     );
     const writeMock = fs.writeFileSync as ReturnType<typeof vi.fn>;
     writeMock.mockImplementation(() => {});
 
-    const context = makeContext(winExtPath);
     const result = await ensureHooksInstalled(context);
 
     expect(result).toBe(true);
