@@ -18,8 +18,10 @@ Running Claude Code against several projects at once is painful in a plain termi
 
 A dedicated "Claude Conductor" panel with two sections:
 
-- **Active Sessions** — currently running Claude terminals. Click to focus. A green terminal icon means the session is working; an orange bell means it's waiting for your input.
-- **Recent Projects** — your VS Code recently opened folders plus any configured extras. Click to launch a new session.
+- **Active Sessions** — currently running Claude terminals. Sessions are grouped by project root; click a project row to expand it and see its sessions. Click a session leaf to focus it. A green terminal icon means the session is working; an orange bell means it's waiting for your input.
+- **Recent Projects** — your VS Code recently opened folders plus any configured extras, grouped by project root. Click a project row to expand it and see its worktrees. Click a folder leaf to launch a new session.
+
+Both panels render as a **two-level tree**: project roots are collapsed by default (showing a child count), with their `.worktrees/<branch>` subdirectories nested underneath. When a worktree's parent project root is not present in Recent Projects, the group row is shown with a dimmed folder icon and a "(not in recents)" label so you can tell at a glance that the root itself isn't tracked.
 
 ### Quick-Pick Launcher
 
