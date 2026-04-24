@@ -93,6 +93,8 @@ When you allow notification hooks, the extension adds three entries to your `~/.
 
 The hooks write state files to `~/.claude/session-state/` which the extension watches. **Only your VS Code extension reads these files** — no data leaves your machine.
 
+**After an extension update**, VS Code installs the new version to a different directory, which would normally leave the hook commands pointing at the old path. Claude Conductor detects this automatically on activation and silently updates the paths in `~/.claude/settings.json` — no user action required.
+
 To remove the hooks at any time: run `Claude Conductor: Remove Notification Hooks` from the command palette.
 
 ## Requirements

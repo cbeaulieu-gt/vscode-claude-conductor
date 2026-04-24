@@ -58,6 +58,79 @@ function hooksInstalled(settings: Record<string, unknown>): boolean {
 }
 
 /**
+ * Return true only when every hook entry containing the session-state.js marker
+ * has a command string that starts with expectedScriptBase.
+ *
+ * If no hooks containing the marker exist, there is nothing stale — returns true.
+ */
+export function hooksUpToDate(
+  settings: Record<string, unknown>,
+  expectedScriptBase: string
+): boolean {
+  const hooks = settings.hooks as Record<string, unknown[]> | undefined;
+  if (!hooks) {
+    return true;
+  }
+
+  for (const entries of Object.values(hooks)) {
+    for (const entry of entries as Array<Record<string, unknown>>) {
+      const innerHooks = entry.hooks as Array<Record<string, unknown>> | undefined;
+      if (!innerHooks) {
+        continue;
+      }
+      for (const h of innerHooks) {
+        const cmd = h.command as string | undefined;
+        if (cmd && cmd.includes(HOOK_MARKER)) {
+          if (!cmd.startsWith(expectedScriptBase)) {
+            return false;
+          }
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Rewrite every hook command that contains the session-state.js marker so
+ * its leading path portion is replaced with expectedScriptBase, preserving
+ * the trailing action argument (idle / active / stop).
+ *
+ * Both Windows git-bash form (`/c/PROGRA~1/nodejs/node.exe /c/Users/...`) and
+ * POSIX form (`node /path/to/...`) round-trip correctly because we split on
+ * the last space before the action arg to isolate the action, then reconstruct.
+ */
+export function reconcileHookPaths(
+  settings: Record<string, unknown>,
+  expectedScriptBase: string
+): void {
+  const hooks = settings.hooks as Record<string, unknown[]> | undefined;
+  if (!hooks) {
+    return;
+  }
+
+  for (const entries of Object.values(hooks)) {
+    for (const entry of entries as Array<Record<string, unknown>>) {
+      const innerHooks = entry.hooks as Array<Record<string, unknown>> | undefined;
+      if (!innerHooks) {
+        continue;
+      }
+      for (const h of innerHooks) {
+        const cmd = h.command as string | undefined;
+        if (cmd && cmd.includes(HOOK_MARKER)) {
+          // The command is "<scriptBase> <action>" — extract the action from
+          // the last whitespace-delimited token.
+          const lastSpace = cmd.lastIndexOf(" ");
+          const action = lastSpace !== -1 ? cmd.slice(lastSpace + 1) : "";
+          h.command = `${expectedScriptBase} ${action}`;
+        }
+      }
+    }
+  }
+}
+
+/**
  * Install our hooks into the existing settings, preserving all existing hooks.
  */
 function installHooks(settings: Record<string, unknown>, scriptBase: string): void {
@@ -147,6 +220,16 @@ export async function ensureHooksInstalled(
   const settings = readSettings();
 
   if (hooksInstalled(settings)) {
+    const scriptBase = getHookScriptPath(context);
+    if (!hooksUpToDate(settings, scriptBase)) {
+      // Paths are stale (extension updated to a new directory). Silently
+      // reconcile — consent was already granted at initial install.
+      reconcileHookPaths(settings, scriptBase);
+      writeSettings(settings);
+      vscode.window.showInformationMessage(
+        "Claude session hook paths updated for new extension version."
+      );
+    }
     return true;
   }
 
