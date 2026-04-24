@@ -47,6 +47,9 @@ All user-facing identifiers have been renamed from the `claudeSessions.*` namesp
 - Configuration section title: `Claude Sessions` → `Claude Conductor`
 - Command palette prefixes: `Claude Sessions:` → `Claude Conductor:`
 
+### Changed
+- **Minimum VS Code version raised to 1.93.** This aligns `engines.vscode` with `@types/vscode` (required by `vsce publish`). Users on VS Code < 1.93 will no longer receive updates via the marketplace.
+
 ### Fixed
 - **Shell init race condition** — `claude` is no longer sent to the terminal mid-profile-init. When VS Code shell integration is available (VS Code ≥ 1.93), the command is dispatched via `shellIntegration.executeCommand()` which waits for the shell prompt. On older VS Code or when shell integration is disabled, a configurable delay (`claudeConductor.launchDelayMs`, default 500 ms) is used instead. Fixes #40.
 - **Idle notifications restored** — the sidebar bell icon and VS Code notification now correctly appear when a Claude session finishes and waits for input. The `Stop` hook deletes the state file; the extension was ignoring that deletion (`_onStateFileDeleted` was a no-op), so sessions stayed stuck in idle state indefinitely. The handler now looks up the session via a cached filename-to-path map and calls `setSessionIdle(folderPath, false)`, clearing both the tree-view icon and the idle set. A new **"Claude Conductor"** output channel logs state-file reads, dispatch decisions, and path-match results for easier diagnostics. Fixes #37.
