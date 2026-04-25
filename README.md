@@ -46,6 +46,8 @@ Powered by [Claude Code hooks](https://docs.anthropic.com/claude-code/hooks) —
 
 Each active session has an "Open in New Window" button that launches a dedicated VS Code window scoped to that project, with Claude auto-starting. Good for focused deep-work sessions when you want the rest of VS Code out of the way.
 
+If the session's folder is already the current workspace, clicking the button will show a brief notification and focus the existing session tab instead of opening a redundant window.
+
 ### Terminal Link Provider
 
 File paths in Claude's terminal output are clickable — open them directly in the editor without copy-pasting.

@@ -6,6 +6,7 @@ import { StatusBar } from "./statusBar";
 import { ClaudeTerminalLinkProvider } from "./terminalLinks";
 import { StateWatcher } from "./stateWatcher";
 import { ensureHooksInstalled, setupHooksCommand, uninstallHooks } from "./hookInstaller";
+import { isSameWorkspaceFolder } from "./workspaceMatch";
 
 let sessionManager: SessionManager;
 
@@ -65,7 +66,7 @@ class SessionUriHandler implements vscode.UriHandler {
 
     // Check if this folder is already the workspace — if not, open it
     const currentFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!currentFolder || currentFolder.toLowerCase() !== folderPath.toLowerCase()) {
+    if (!isSameWorkspaceFolder(currentFolder, folderPath)) {
       // Save a flag so the extension auto-launches after VS Code reloads
       await this.globalState.update(AUTO_LAUNCH_KEY, folderPath);
       // Open folder in a new window
@@ -154,9 +155,22 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("claudeConductor.openInNewWindow", (arg?: unknown) => {
       const session = resolveSession(arg);
       const folderPath = session?.folderPath;
-      if (!folderPath) {
+      if (!folderPath || !session) {
         return;
       }
+
+      // If the target folder is already the current workspace, opening a new
+      // URI would round-trip back to this window and do nothing visible.
+      // Instead, show a dismissible info toast and focus the session tab.
+      const currentFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (isSameWorkspaceFolder(currentFolder, folderPath)) {
+        void vscode.window.showInformationMessage(
+          "You're already in this project's window — focused the session instead."
+        );
+        sessionManager.focusSession(session);
+        return;
+      }
+
       const encodedPath = encodeURIComponent(folderPath);
       const uri = vscode.Uri.parse(
         `vscode://cbeaulieu-gt.claude-conductor/launch?folder=${encodedPath}`
