@@ -3,7 +3,7 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { getClaudeCommand, getReuseTerminal, getLaunchDelayMs } from "./config";
-import { log } from "./output";
+import { log, debugLog } from "./output";
 
 /** Prefix used for all Claude session terminal names */
 export const SESSION_NAME_PREFIX = "claude · ";
@@ -201,14 +201,20 @@ export class SessionManager implements vscode.Disposable {
    */
   reconcile(): void {
     const liveTerminals = new Set(vscode.window.terminals);
+    debugLog(`[reconcile] sessions=${this._sessions.size} liveTerminals=${vscode.window.terminals.length}`);
     let changed = false;
 
     for (const [terminal, session] of this._sessions) {
       if (!liveTerminals.has(terminal)) {
+        debugLog(`[reconcile:evict] name=${JSON.stringify(terminal.name)} folderPath=${JSON.stringify(session.folderPath)}`);
         this._sessions.delete(terminal);
         this._cleanupStateFile(session.folderPath);
         changed = true;
       }
+    }
+
+    if (!changed) {
+      debugLog(`[reconcile:clean] no evictions`);
     }
 
     if (changed) {
@@ -233,12 +239,16 @@ export class SessionManager implements vscode.Disposable {
   /** Track a terminal if it's a Claude session. */
   private _trackIfClaudeSession(terminal: vscode.Terminal): void {
     if (!this._isClaudeSession(terminal)) {
+      debugLog(`[track] skip name=${JSON.stringify(terminal.name)} reason=not-claude sessions=${this._sessions.size} pids=${this._pidToTerminal.size}`);
       return;
     }
     const folderPath = this._extractFolderPath(terminal);
     if (!folderPath) {
+      debugLog(`[track] skip name=${JSON.stringify(terminal.name)} reason=no-cwd sessions=${this._sessions.size} pids=${this._pidToTerminal.size}`);
       return;
     }
+
+    debugLog(`[track] tracking name=${JSON.stringify(terminal.name)} folderPath=${JSON.stringify(folderPath)} sessions=${this._sessions.size} pids=${this._pidToTerminal.size}`);
 
     this._sessions.set(terminal, {
       terminal,
@@ -253,8 +263,15 @@ export class SessionManager implements vscode.Disposable {
     // avoid blocking the synchronous tracking path.
     // Use two-argument .then() because PromiseLike lacks .catch().
     terminal.processId.then(
-      (pid) => { if (pid !== undefined) { this._pidToTerminal.set(pid, terminal); } },
-      () => { /* PID unavailable for this terminal */ }
+      (pid) => {
+        if (pid !== undefined) {
+          this._pidToTerminal.set(pid, terminal);
+          debugLog(`[track:pid] resolved pid=${pid} name=${JSON.stringify(terminal.name)} pids=${this._pidToTerminal.size}`);
+        } else {
+          debugLog(`[track:pid] pid=undefined name=${JSON.stringify(terminal.name)} — not indexed`);
+        }
+      },
+      () => { debugLog(`[track:pid] processId rejected name=${JSON.stringify(terminal.name)}`); }
     );
 
     this._onDidChangeSessions.fire();
@@ -267,19 +284,27 @@ export class SessionManager implements vscode.Disposable {
    * 3. PID match (handles the editor-tab X case where name becomes "").
    */
   private _handleTerminalClose(terminal: vscode.Terminal): void {
+    debugLog(`[close] event name=${JSON.stringify(terminal.name)} sessionsBefore=${this._sessions.size} pids=${this._pidToTerminal.size}`);
+
     // Tier 1 — identity
     if (this._removeByKey(terminal)) {
+      debugLog(`[close:tier1] hit name=${JSON.stringify(terminal.name)}`);
       return;
     }
+    debugLog(`[close:tier1] miss name=${JSON.stringify(terminal.name)}`);
 
     // Tier 2 — name match (only when name is non-empty)
     if (terminal.name) {
       for (const [key, session] of this._sessions) {
         if (session.terminal.name === terminal.name) {
+          debugLog(`[close:tier2] hit name=${JSON.stringify(terminal.name)} matchedSession=${JSON.stringify(session.folderPath)}`);
           this._removeByKey(key);
           return;
         }
       }
+      debugLog(`[close:tier2] miss name=${JSON.stringify(terminal.name)} checkedSessions=${this._sessions.size}`);
+    } else {
+      debugLog(`[close:tier2] skip name="" (empty — cannot match by name)`);
     }
 
     // Tier 3 — PID match. processId is a Thenable; we must handle it async.
@@ -287,13 +312,20 @@ export class SessionManager implements vscode.Disposable {
     // Falls back to reconcile() on the next poll tick if this also misses.
     terminal.processId.then(
       (pid) => {
-        if (pid === undefined) { return; }
+        if (pid === undefined) {
+          debugLog(`[close:tier3:no-pid] processId=undefined name=${JSON.stringify(terminal.name)} — deferring to reconcile()`);
+          return;
+        }
         const trackedTerminal = this._pidToTerminal.get(pid);
-        if (trackedTerminal && this._sessions.has(trackedTerminal)) {
+        const sessionStillExists = trackedTerminal ? this._sessions.has(trackedTerminal) : false;
+        debugLog(`[close:tier3] pid=${pid} name=${JSON.stringify(terminal.name)} inPidIndex=${trackedTerminal !== undefined} sessionStillExists=${sessionStillExists}`);
+        if (trackedTerminal && sessionStillExists) {
           this._removeByKey(trackedTerminal);
         }
       },
-      () => { /* PID unavailable — reconcile() will catch it */ }
+      () => {
+        debugLog(`[close:tier3:no-pid] processId rejected name=${JSON.stringify(terminal.name)} — deferring to reconcile()`);
+      }
     );
   }
 
@@ -304,13 +336,20 @@ export class SessionManager implements vscode.Disposable {
   private _removeByKey(terminal: vscode.Terminal): boolean {
     const session = this._sessions.get(terminal);
     if (!session) {
+      debugLog(`[remove] miss name=${JSON.stringify(terminal.name)} — key already gone (possible double-fire)`);
       return false;
     }
     this._sessions.delete(terminal);
+    debugLog(`[remove] success folderPath=${JSON.stringify(session.folderPath)} sessionsAfter=${this._sessions.size}`);
 
     // Remove from PID index (two-argument .then() because PromiseLike lacks .catch())
     terminal.processId.then(
-      (pid) => { if (pid !== undefined) { this._pidToTerminal.delete(pid); } },
+      (pid) => {
+        if (pid !== undefined) {
+          this._pidToTerminal.delete(pid);
+          debugLog(`[pid:delete] pid=${pid} pidsAfter=${this._pidToTerminal.size}`);
+        }
+      },
       () => { /* ignore */ }
     );
 

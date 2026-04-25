@@ -176,6 +176,11 @@
           "default": 500,
           "minimum": 0,
           "description": "Milliseconds to wait before sending the claude command when shell integration is unavailable (VS Code < 1.93 or shell integration disabled). Increase if your shell profile is slow to initialise."
+        },
+        "claudeConductor.debugLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable verbose diagnostic logging for session lifecycle (Active Sessions panel close-detection diagnostics). Default off."
         }
       }
     },

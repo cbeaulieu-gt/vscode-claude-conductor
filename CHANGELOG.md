@@ -4,6 +4,9 @@ All notable changes to the Claude Conductor extension are documented here.
 
 ## [Unreleased]
 
+### Added
+- **`claudeConductor.debugLogging` setting** — when enabled, emits verbose structured `key=value` diagnostic lines to the "Claude Conductor" output channel for every session-lifecycle event: terminal tracking (`[track]`, `[track:pid]`), close-detection tier outcomes (`[close]`, `[close:tier1]`, `[close:tier2]`, `[close:tier3]`, `[close:tier3:no-pid]`), PID index mutations (`[pid:delete]`), and reconcile poll results (`[reconcile]`, `[reconcile:evict]`, `[reconcile:clean]`). Default off; intended for diagnosing missed editor-tab close events (refs #68 phase A).
+
 ### Fixed
 - **Open in New Window no longer silently no-ops on the current window** — when the command is invoked on a session whose folder is already the active workspace, VS Code would receive the `vscode://` URI, route it back to the same window, and the user would perceive no change. The command now detects this case via a case-insensitive folder comparison, shows a dismissible info toast ("You're already in this project's window — focused the session instead."), and focuses the session tab instead of firing the URI. Fixes #66.
 
