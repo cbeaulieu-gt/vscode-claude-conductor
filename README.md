@@ -74,6 +74,15 @@ Cycles through Claude tabs only, not every terminal or editor tab.
 | `claudeConductor.reuseExistingTerminal` | `true` | Focus an existing session tab instead of opening a duplicate |
 | `claudeConductor.enableNotifications` | `true` | Show notifications when a session is waiting for input |
 | `claudeConductor.extraFolders` | `[]` | Additional folder paths to show in the launcher |
+| `claudeConductor.debugLogging` | `false` | Enable verbose diagnostic logging for session lifecycle (see Debug logging below) |
+
+### Debug logging
+
+Set `claudeConductor.debugLogging` to `true` to enable verbose diagnostic output for session lifecycle events including close-detection. All output appears in the **"Claude Conductor"** output channel (open it via **View → Output**, then select "Claude Conductor" from the dropdown).
+
+When enabled, the extension logs structured `key=value` lines for every terminal-open, terminal-close (including which of the three fallback tiers matched), reconcile poll tick, and PID index write/delete. This is useful for diagnosing missed editor-tab close events (tracked in [#68](https://github.com/cbeaulieu-gt/vscode-claude-conductor/issues/68)).
+
+This setting is off by default and has no effect on normal operation. Disable it after capturing the logs you need.
 
 ## Commands
 

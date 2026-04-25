@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { getDebugLogging } from "./config";
 
 const CHANNEL_NAME = "Claude Conductor";
 
@@ -16,4 +17,16 @@ export function getOutputChannel(): vscode.OutputChannel {
 export function log(message: string): void {
   const ts = new Date().toISOString();
   getOutputChannel().appendLine(`[${ts}] ${message}`);
+}
+
+/**
+ * Append a debug-prefixed line to the output channel, but only when
+ * `claudeConductor.debugLogging` is enabled. All debug output routes
+ * through the existing channel so users have one place to copy-paste from.
+ */
+export function debugLog(message: string): void {
+  if (!getDebugLogging()) {
+    return;
+  }
+  log(`[debug] ${message}`);
 }

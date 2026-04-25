@@ -29,3 +29,7 @@ export function getLaunchDelayMs(): number {
   const raw = getConfig().get<number>("launchDelayMs", 500);
   return Math.max(0, raw);
 }
+
+export function getDebugLogging(): boolean {
+  return getConfig().get<boolean>("debugLogging", false);
+}
