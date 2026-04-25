@@ -4,7 +4,8 @@ All notable changes to the Claude Conductor extension are documented here.
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Fixed
+- **Open in New Window no longer silently no-ops on the current window** — when the command is invoked on a session whose folder is already the active workspace, VS Code would receive the `vscode://` URI, route it back to the same window, and the user would perceive no change. The command now detects this case via a case-insensitive folder comparison, shows a dismissible info toast ("You're already in this project's window — focused the session instead."), and focuses the session tab instead of firing the URI. Fixes #66.
 
 ## [1.3.0] — 2026-04-23
 
