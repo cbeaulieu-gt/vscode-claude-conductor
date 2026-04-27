@@ -76,6 +76,15 @@ export class SessionManager implements vscode.Disposable {
   async launchSession(folderPath: string): Promise<void> {
     const normalized = path.normalize(folderPath);
 
+    // Guard: refuse to create a terminal for a cwd that no longer exists on
+    // disk.  This prevents VS Code from emitting "Starting directory does not
+    // exist" errors when a stale _sessions entry (whose directory has since
+    // been deleted or moved) is somehow passed here.
+    if (!fs.existsSync(normalized)) {
+      log(`[launch] skipping — cwd does not exist: ${normalized}`);
+      return;
+    }
+
     if (getReuseTerminal()) {
       const existing = this._findSessionByFolder(normalized);
       if (existing) {
