@@ -80,9 +80,12 @@ class SessionUriHandler implements vscode.UriHandler {
   }
 }
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  // First-activation consent gate for reattach feature (#43)
-  await runReattachOnboarding(context.globalState);
+export function activate(context: vscode.ExtensionContext): void {
+  // First-activation onboarding for reattach feature (#43).
+  // Fire-and-forget — do not block extension setup on the user's toast click.
+  // First activation may dispatch into restored tabs before the user can opt
+  // out; this is the documented day-1 caveat (see CHANGELOG notes).
+  void runReattachOnboarding(context.globalState);
 
   sessionManager = new SessionManager(context.workspaceState);
   context.subscriptions.push(sessionManager);

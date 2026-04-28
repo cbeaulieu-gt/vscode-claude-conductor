@@ -635,7 +635,7 @@ export class SessionManager implements vscode.Disposable {
           current[this._normalizePersistKey(folderPath)] = pid;
           await this._workspaceState.update(PID_KEY, current);
         } catch (err) {
-          log(`[reattach] failed to persist PID for ${folderPath}: ${String(err)}`);
+          log(`[pid] failed to persist PID for ${folderPath}: ${String(err)}`);
         }
       });
   }
@@ -654,7 +654,7 @@ export class SessionManager implements vscode.Disposable {
           delete current[this._normalizePersistKey(folderPath)];
           await this._workspaceState.update(PID_KEY, current);
         } catch (err) {
-          log(`[reattach] failed to clear PID for ${folderPath}: ${String(err)}`);
+          log(`[pid] failed to clear PID for ${folderPath}: ${String(err)}`);
         }
       });
   }
