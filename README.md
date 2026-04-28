@@ -59,6 +59,10 @@ File paths in Claude's terminal output are clickable — open them directly in t
 
 Cycles through Claude tabs only, not every terminal or editor tab.
 
+### Reattach on VS Code Startup
+
+When VS Code restarts and Claude session tabs are restored with fresh shells, Conductor automatically dispatches `claude` into each tab so your sessions come back without manual relaunch. Gated by `claudeConductor.relaunchOnStartup` (default `true`).
+
 ## Getting Started
 
 1. Install the extension
@@ -75,6 +79,7 @@ Cycles through Claude tabs only, not every terminal or editor tab.
 | `claudeConductor.enableNotifications` | `true` | Show notifications when a session is waiting for input |
 | `claudeConductor.extraFolders` | `[]` | Additional folder paths to show in the launcher |
 | `claudeConductor.debugLogging` | `false` | Enable verbose diagnostic logging for session lifecycle (see Debug logging below) |
+| `claudeConductor.relaunchOnStartup` | `true` | When VS Code restarts, dispatch `claude` into restored Conductor session tabs whose inner shell was replaced. Disable if you also use the official Claude Code extension and Conductor mis-fires into its sessions, or on Windows shells (cmd.exe / PowerShell without PSReadLine) where the buffered-input clear-prefix is not interpreted as kill-line. |
 
 ### Debug logging
 
@@ -120,6 +125,7 @@ To remove the hooks at any time: run `Claude Conductor: Remove Notification Hook
 - Session tracking only works within a single VS Code window (sessions in other windows aren't visible in the sidebar)
 - The idle notification fires after Claude Code's built-in ~60-second idle threshold — not tunable from the extension
 - VS Code terminal tabs cannot change color or flash after creation, so "attention" is communicated via sidebar bell icons and notifications rather than tab-level indicators
+- **Reattach on cmd.exe / PowerShell without PSReadLine**: when the buffered-input clear-prefix on the delay-fallback dispatch path is not interpreted as line-clear (legacy Windows shells without modern line editing), a stray `claude` keystroke could land in any buffered prompt input. Disable `claudeConductor.relaunchOnStartup` if affected.
 
 ## Contributing / Development
 

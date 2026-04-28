@@ -5,10 +5,17 @@ All notable changes to the Claude Conductor extension are documented here.
 ## [Unreleased]
 
 ### Added
+- **Reattach Claude sessions on VS Code startup** (#43). Conductor now detects restored session tabs whose inner shell was replaced (after a system restart, ptyhost crash, or VS Code with persistent-session revival off) and dispatches `claude` into each tab automatically. Gated by the new `claudeConductor.relaunchOnStartup` setting (default `true`).
+- First-activation consent toast when the official Claude Code extension (`Anthropic.claude-code`) is detected. Lets users opt out of reattach to avoid Conductor injecting keystrokes into the official extension's sessions.
 - **`claudeConductor.debugLogging` setting** — when enabled, emits verbose structured `key=value` diagnostic lines to the "Claude Conductor" output channel for every session-lifecycle event: terminal tracking (`[track]`, `[track:pid]`), close-detection tier outcomes (`[close]`, `[close:tier1]`, `[close:tier2]`, `[close:tier3]`, `[close:tier3:no-pid]`), PID index mutations (`[pid:delete]`), and reconcile poll results (`[reconcile]`, `[reconcile:evict]`, `[reconcile:clean]`). Default off; intended for diagnosing missed editor-tab close events (refs #68 phase A).
 
 ### Fixed
 - **Open in New Window no longer silently no-ops on the current window** — when the command is invoked on a session whose folder is already the active workspace, VS Code would receive the `vscode://` URI, route it back to the same window, and the user would perceive no change. The command now detects this case via a case-insensitive folder comparison, shows a dismissible info toast ("You're already in this project's window — focused the session instead."), and focuses the session tab instead of firing the URI. Fixes #66.
+
+### Notes
+- **Windows shell limitation**: the buffered-input clear-prefix used on the delay-fallback dispatch path uses Ctrl-C + Ctrl-U, which is interpreted as line-clear on POSIX shells and Windows PowerShell with PSReadLine (the default). On legacy cmd.exe and PowerShell-without-PSReadLine, the clear is a no-op — set `claudeConductor.relaunchOnStartup: false` if affected.
+- **First launch after upgrade**: existing Claude tabs whose shells survived your last VS Code restart may receive a one-time stray `claude` keystroke (no stored PID baseline). Subsequent activations are race-free.
+- **Day-1 collision with the official Claude Code extension**: if you install the official extension *after* Conductor's first activation, the consent toast won't retroactively fire. Set `claudeConductor.relaunchOnStartup: false` manually if needed.
 
 ## [1.3.0] — 2026-04-23
 
