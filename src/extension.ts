@@ -7,6 +7,7 @@ import { ClaudeTerminalLinkProvider } from "./terminalLinks";
 import { StateWatcher } from "./stateWatcher";
 import { ensureHooksInstalled, setupHooksCommand, uninstallHooks } from "./hookInstaller";
 import { isSameWorkspaceFolder } from "./workspaceMatch";
+import { runReattachOnboarding } from "./onboarding";
 
 let sessionManager: SessionManager;
 
@@ -79,7 +80,10 @@ class SessionUriHandler implements vscode.UriHandler {
   }
 }
 
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // First-activation consent gate for reattach feature (#43)
+  await runReattachOnboarding(context.globalState);
+
   sessionManager = new SessionManager(context.workspaceState);
   context.subscriptions.push(sessionManager);
 
