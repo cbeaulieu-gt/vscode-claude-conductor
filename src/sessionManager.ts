@@ -127,6 +127,17 @@ export class SessionManager implements vscode.Disposable {
 
     // Dispatch the claude command only after the shell prompt is ready
     await this._dispatchClaudeCommand(terminal);
+
+    // Persist the new shell's PID so the next activation's reattach pass
+    // has a baseline. processId is a Thenable; we don't block here.
+    terminal.processId.then(
+      (pid) => {
+        if (pid !== undefined) {
+          this._persistSessionPid(normalized, pid);
+        }
+      },
+      () => { /* ignore — best-effort persistence */ }
+    );
   }
 
   /**
@@ -379,6 +390,12 @@ export class SessionManager implements vscode.Disposable {
       },
       () => { /* ignore */ }
     );
+
+    // Clear the persisted PID for this folder so the next activation's
+    // reattach pass doesn't see a stale baseline. Runs UNCONDITIONALLY
+    // (regardless of relaunchOnStartup setting) to prevent stale baselines
+    // when the user toggles the setting off then back on.
+    this._clearSessionPid(session.folderPath);
 
     this._cleanupStateFile(session.folderPath);
     this._onDidChangeSessions.fire();

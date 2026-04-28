@@ -12,6 +12,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as vscodeMock from "./mocks/vscode";
 import { createMemento, MementoMock } from "./mocks/vscode";
 import { SessionManager } from "../src/sessionManager";
+import * as fs from "fs";
+
+// Mock the entire `fs` module so we can control existsSync in launchSession tests.
+vi.mock("fs");
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Private = any;
@@ -82,5 +86,55 @@ describe("SessionManager PID persistence", () => {
     await (sm as Private)._pidWriteQueue;
     const stored = mem._store.get(PID_KEY) as Record<string, number>;
     expect(Object.keys(stored)).toEqual(["D:\\Project\\MyApp"]);
+  });
+
+  it("launchSession persists PID after the new terminal's processId resolves", async () => {
+    // Mock createTerminal to return a fake terminal whose processId resolves to 999
+    const fakeTerminal = {
+      name: "claude · proj",
+      show: vi.fn(),
+      sendText: vi.fn(),
+      dispose: vi.fn(),
+      processId: Promise.resolve(999),
+      shellIntegration: undefined,
+      creationOptions: { cwd: "D:\\proj" },
+    };
+    vi.mocked(vscodeMock.window.createTerminal).mockReturnValue(
+      fakeTerminal as unknown as import("vscode").Terminal
+    );
+    // fs.existsSync must return true for launchSession's cwd guard
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+
+    await sm.launchSession("D:\\proj");
+    // launchSession schedules the persist — drain the queue
+    await (sm as Private)._pidWriteQueue;
+
+    const stored = mem._store.get(PID_KEY) as Record<string, number>;
+    expect(stored).toEqual({ "D:\\proj": 999 });
+  });
+
+  it("_removeByKey clears the PID entry on session close", async () => {
+    // Seed _sessions and PID record
+    const fakeTerminal = {
+      name: "claude · proj",
+      processId: Promise.resolve(123),
+      creationOptions: { cwd: "D:\\proj" },
+    } as unknown as import("vscode").Terminal;
+    (sm as Private)._sessions.set(fakeTerminal, {
+      terminal: fakeTerminal,
+      folderPath: "D:\\proj",
+      folderName: "proj",
+      startedAt: new Date(),
+      isIdle: false,
+    });
+    (sm as Private)._persistSessionPid("D:\\proj", 123);
+    await (sm as Private)._pidWriteQueue;
+    expect(mem._store.get(PID_KEY)).toEqual({ "D:\\proj": 123 });
+
+    // Trigger close cleanup
+    (sm as Private)._removeByKey(fakeTerminal);
+    await (sm as Private)._pidWriteQueue;
+
+    expect(mem._store.get(PID_KEY)).toEqual({});
   });
 });
