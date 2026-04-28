@@ -309,19 +309,57 @@ export class SessionManager implements vscode.Disposable {
   }
 
   /**
-   * Per-session reattach decision. Mutates `deadCwds` in place when the
+   * Per-session reattach decision (#43). Mutates `deadCwds` in place when the
    * session's cwd no longer exists on disk.
    *
-   * Skeleton implementation in this task — full decision logic lands in
-   * Task 7 (PID compare/dispatch) and Task 8 (cwd-missing handling).
+   * Decision branches:
+   * - currentPid undefined/reject → skip (can't reason about state).
+   * - storedPid === currentPid → shell survived; refresh record, skip dispatch.
+   * - cwd missing → enqueue for aggregate toast, dispose tab.
+   * - else (PID differ or no stored PID) → dispatch via the buffered-input-safe
+   *   helper, then persist the new PID.
    */
   private async _reattachOneSession(
     session: ActiveSession,
     deadCwds: string[]
   ): Promise<void> {
-    // Placeholder — will be filled in by Task 7 and Task 8.
-    void session;
-    void deadCwds;
+    // 1. Resolve current PID (await — Thenable)
+    let currentPid: number | undefined;
+    try {
+      currentPid = await session.terminal.processId;
+    } catch {
+      currentPid = undefined;
+    }
+
+    if (currentPid === undefined) {
+      debugLog(`[reattach:one] folderPath=${session.folderPath} pid=undefined — skip`);
+      return;
+    }
+
+    // 2. Read previously-stored PID from workspaceState
+    const record =
+      this._workspaceState.get<Record<string, number>>(PID_KEY) ?? {};
+    const storedPid = record[this._normalizePersistKey(session.folderPath)];
+
+    // 3. PID match → shell survived, refresh record only, no dispatch
+    if (storedPid === currentPid) {
+      debugLog(`[reattach:one] folderPath=${session.folderPath} pid=${currentPid} match — skip dispatch`);
+      this._persistSessionPid(session.folderPath, currentPid);
+      return;
+    }
+
+    // 4. Cwd missing? Dispose and queue for the aggregate toast.
+    if (!fs.existsSync(session.folderPath)) {
+      debugLog(`[reattach:one] folderPath=${session.folderPath} cwd missing — dispose`);
+      deadCwds.push(session.folderPath);
+      session.terminal.dispose();
+      return;
+    }
+
+    // 5. Fresh shell — dispatch claude, then persist new PID
+    debugLog(`[reattach:one] folderPath=${session.folderPath} stored=${storedPid} current=${currentPid} — dispatch`);
+    await this._dispatchClaudeIntoRestoredTerminal(session.terminal);
+    this._persistSessionPid(session.folderPath, currentPid);
   }
 
   /** Focus an existing session's editor tab. */
