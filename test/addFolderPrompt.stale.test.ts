@@ -19,6 +19,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createMemento } from "./mocks/vscode";
 import * as fs from "fs";
 
 // Mock the entire `fs` module so we can control existsSync / statSync / readdirSync
@@ -176,7 +177,7 @@ describe("addFolderPrompt — stale _sessions entry (issue #71)", () => {
     // ARRANGE: construct a fresh SessionManager with no terminals.
     // PATH_A is mocked as non-existent on disk via fs.existsSync above.
     // -------------------------------------------------------------------------
-    const manager = new SessionManager();
+    const manager = new SessionManager(createMemento() as unknown as import("vscode").Memento);
 
     vi.mocked(vscodeMock.window.createTerminal).mockClear();
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { createMemento } from "./mocks/vscode";
 import { SessionManager } from "../src/sessionManager";
 import type { ActiveSession } from "../src/sessionManager";
 
@@ -24,7 +25,7 @@ describe("SessionManager.focusSession", () => {
       isIdle: false,
     };
 
-    const manager = new SessionManager();
+    const manager = new SessionManager(createMemento() as unknown as import("vscode").Memento);
     manager.focusSession(session);
 
     expect(show).toHaveBeenCalledOnce();

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as vscodeMock from "./mocks/vscode";
+import { createMemento } from "./mocks/vscode";
 import { getOutputChannel } from "../src/output";
 import { SessionManager } from "../src/sessionManager";
 
@@ -56,7 +57,7 @@ describe("SessionManager close-detection debug logging", () => {
       new vscodeMock.Disposable(() => {})
     );
 
-    const manager = new SessionManager();
+    const manager = new SessionManager(createMemento() as unknown as import("vscode").Memento);
 
     // Manually insert the session so _handleTerminalClose has something to match
     // We do this by triggering onDidOpenTerminal with a claude-prefixed terminal.

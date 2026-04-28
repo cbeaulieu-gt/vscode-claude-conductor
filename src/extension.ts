@@ -80,7 +80,7 @@ class SessionUriHandler implements vscode.UriHandler {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  sessionManager = new SessionManager();
+  sessionManager = new SessionManager(context.workspaceState);
   context.subscriptions.push(sessionManager);
 
   // URI handler for cross-window launch

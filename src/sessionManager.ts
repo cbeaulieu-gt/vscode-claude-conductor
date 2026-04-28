@@ -10,6 +10,9 @@ export const SESSION_NAME_PREFIX = "claude · ";
 
 const STATE_DIR = path.join(os.homedir(), ".claude", "session-state");
 
+/** workspaceState key for the PID record. */
+const PID_KEY = "claudeConductor.sessionPids";
+
 interface SessionState {
   state: "idle" | "active";
   cwd: string;
@@ -42,7 +45,22 @@ export class SessionManager implements vscode.Disposable {
   /** Fires whenever the active session list changes (open or close). */
   readonly onDidChangeSessions = this._onDidChangeSessions.event;
 
-  constructor() {
+  /** Set when dispose() is called — guards async-resolved writes. */
+  private _disposed = false;
+
+  /**
+   * Serialized write queue for PID persistence. Each call extends the chain
+   * with a leading .catch() so a prior rejection doesn't poison subsequent
+   * writes, and an inner try/catch logs and swallows transient failures.
+   */
+  private _pidWriteQueue: Promise<void> = Promise.resolve();
+
+  /** workspaceState injected by the extension activator. */
+  private readonly _workspaceState: vscode.Memento;
+
+  constructor(workspaceState: vscode.Memento) {
+    this._workspaceState = workspaceState;
+
     // Pick up any Claude terminals that already exist (e.g., extension reloaded)
     for (const terminal of vscode.window.terminals) {
       this._trackIfClaudeSession(terminal);
@@ -415,6 +433,7 @@ export class SessionManager implements vscode.Disposable {
   }
 
   dispose(): void {
+    this._disposed = true;
     for (const d of this._disposables) {
       d.dispose();
     }
