@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { getClaudeCommand, getReuseTerminal, getLaunchDelayMs } from "./config";
+import { getClaudeCommand, getReuseTerminal, getLaunchDelayMs, getRelaunchOnStartup } from "./config";
 import { log, debugLog } from "./output";
 
 /** Prefix used for all Claude session terminal names */
@@ -55,6 +55,13 @@ export class SessionManager implements vscode.Disposable {
    */
   private _pidWriteQueue: Promise<void> = Promise.resolve();
 
+  /**
+   * Promise from the reattach pass kicked off in the constructor.
+   * Tests await this to verify reattach completed; production callers
+   * fire-and-forget.
+   */
+  private _reattachPromise: Promise<void> = Promise.resolve();
+
   /** workspaceState injected by the extension activator. */
   private readonly _workspaceState: vscode.Memento;
 
@@ -75,6 +82,12 @@ export class SessionManager implements vscode.Disposable {
       }),
       this._onDidChangeSessions
     );
+
+    // Kick off reattach pass for restored Claude tabs (gated by setting).
+    // Fire-and-forget — _reattachPromise is exposed for tests.
+    if (getRelaunchOnStartup()) {
+      this._reattachPromise = this._reattachRestoredSessions();
+    }
   }
 
   /** All currently active Claude sessions. */
@@ -256,6 +269,59 @@ export class SessionManager implements vscode.Disposable {
     const delayMs = getLaunchDelayMs();
     await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
     terminal.sendText(cmd);
+  }
+
+  /**
+   * Reattach pass for restored Claude session tabs (#43).
+   *
+   * Runs once at the end of the constructor when relaunchOnStartup is on.
+   * Iterates a SYNCHRONOUS SNAPSHOT of _sessions.values() taken at entry
+   * (defensive against onDidOpenTerminal mid-iteration mutation), kicks
+   * off per-session async routines, awaits Promise.allSettled, and shows
+   * an aggregate dead-cwd toast when applicable.
+   *
+   * The toast is gated on !this._disposed so a dispose() that lands during
+   * the routines doesn't surface a stale warning.
+   *
+   * Per-session decision logic, dispatch, and cwd-missing handling are
+   * implemented in subsequent tasks of this plan.
+   */
+  private async _reattachRestoredSessions(): Promise<void> {
+    debugLog(`[reattach] starting pass — sessions=${this._sessions.size}`);
+    const snapshot = Array.from(this._sessions.values());
+    const deadCwds: string[] = [];
+
+    await Promise.allSettled(
+      snapshot.map((session) => this._reattachOneSession(session, deadCwds))
+    );
+
+    if (!this._disposed && deadCwds.length > 0) {
+      const shown = deadCwds.slice(0, 3);
+      const overflow = deadCwds.length - shown.length;
+      const folderList = shown.join(", ") + (overflow > 0 ? `, and ${overflow} more` : "");
+      const noun = deadCwds.length === 1 ? "session" : "sessions";
+      vscode.window.showInformationMessage(
+        `Could not restore ${deadCwds.length} ${noun} — folder${deadCwds.length === 1 ? "" : "s"} no longer exist: ${folderList}`
+      );
+    }
+
+    debugLog(`[reattach] pass complete — deadCwds=${deadCwds.length}`);
+  }
+
+  /**
+   * Per-session reattach decision. Mutates `deadCwds` in place when the
+   * session's cwd no longer exists on disk.
+   *
+   * Skeleton implementation in this task — full decision logic lands in
+   * Task 7 (PID compare/dispatch) and Task 8 (cwd-missing handling).
+   */
+  private async _reattachOneSession(
+    session: ActiveSession,
+    deadCwds: string[]
+  ): Promise<void> {
+    // Placeholder — will be filled in by Task 7 and Task 8.
+    void session;
+    void deadCwds;
   }
 
   /** Focus an existing session's editor tab. */
