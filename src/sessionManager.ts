@@ -421,6 +421,59 @@ export class SessionManager implements vscode.Disposable {
     }
   }
 
+  /**
+   * Normalize a folder path for use as a persistence key.
+   * Case is PRESERVED — see "Persistence vs in-memory key" in the design spec.
+   * Lower-case folding applies only to in-memory `_findSessionByFolder` lookups,
+   * NOT to keys persisted in workspaceState.
+   */
+  private _normalizePersistKey(folderPath: string): string {
+    return path.normalize(folderPath);
+  }
+
+  /**
+   * Write the (folderPath -> pid) entry to workspaceState[PID_KEY].
+   * No-op after dispose().
+   *
+   * Writes are serialized through `_pidWriteQueue` to prevent read-modify-write
+   * races between concurrent reattach routines and `launchSession` flows. The
+   * leading `.catch(() => undefined)` ensures a prior rejection doesn't poison
+   * subsequent writes; the inner try/catch logs and swallows transient failures.
+   */
+  private _persistSessionPid(folderPath: string, pid: number): void {
+    if (this._disposed) return;
+    this._pidWriteQueue = this._pidWriteQueue
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          const current = this._workspaceState.get<Record<string, number>>(PID_KEY) ?? {};
+          current[this._normalizePersistKey(folderPath)] = pid;
+          await this._workspaceState.update(PID_KEY, current);
+        } catch (err) {
+          log(`[reattach] failed to persist PID for ${folderPath}: ${String(err)}`);
+        }
+      });
+  }
+
+  /**
+   * Remove the entry for `folderPath` from workspaceState[PID_KEY].
+   * Same queue + rejection semantics as `_persistSessionPid`. No-op after dispose().
+   */
+  private _clearSessionPid(folderPath: string): void {
+    if (this._disposed) return;
+    this._pidWriteQueue = this._pidWriteQueue
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          const current = this._workspaceState.get<Record<string, number>>(PID_KEY) ?? {};
+          delete current[this._normalizePersistKey(folderPath)];
+          await this._workspaceState.update(PID_KEY, current);
+        } catch (err) {
+          log(`[reattach] failed to clear PID for ${folderPath}: ${String(err)}`);
+        }
+      });
+  }
+
   /** Find session by normalized folder path. */
   private _findSessionByFolder(normalizedPath: string): ActiveSession | undefined {
     const key = normalizedPath.toLowerCase();
