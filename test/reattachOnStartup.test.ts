@@ -39,6 +39,9 @@ describe("reattach on startup — orchestration", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     (vscodeMock.window as Record<string, unknown>).terminals = [];
+    // Clear call history on plain vi.fn() instances (vi.restoreAllMocks only
+    // resets spies, not these module-level fns, so counts bleed otherwise).
+    vscodeMock.window.showInformationMessage.mockClear();
     // Default: all paths exist on disk (individual tests override as needed)
     vi.mocked(fs.existsSync).mockReturnValue(true);
   });
@@ -164,6 +167,60 @@ describe("reattach on startup — orchestration", () => {
     expect(term.shellIntegration.executeCommand).not.toHaveBeenCalled();
     expect(term.sendText).not.toHaveBeenCalled();
     expect(term.dispose).not.toHaveBeenCalled();
+  });
+
+  // Scenario 6: cwd missing for one tab → dispose + single-entry toast
+  it("cwd missing (single tab) → dispose + toast with one folder", async () => {
+    vi.spyOn(config, "getRelaunchOnStartup").mockReturnValue(true);
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    const term = makeTerminal({ name: "claude · foo", cwd: "D:\\foo", pid: 42 });
+    (vscodeMock.window as Record<string, unknown>).terminals = [term];
+
+    const sm = new SessionManager(createMemento() as unknown as import("vscode").Memento);
+    await (sm as Private)._reattachPromise;
+
+    expect((term as { dispose: ReturnType<typeof vi.fn> }).dispose).toHaveBeenCalled();
+    expect((term as { sendText: ReturnType<typeof vi.fn> }).sendText).not.toHaveBeenCalled();
+    expect(vscodeMock.window.showInformationMessage).toHaveBeenCalledTimes(1);
+    expect(vscodeMock.window.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining("D:\\foo")
+    );
+    // Lock the singular/plural pluralization branch: 1 dead cwd → singular noun
+    const msg = vi.mocked(vscodeMock.window.showInformationMessage).mock.calls[0][0] as string;
+    expect(msg).toMatch(/1 session\b/);  // exactly "1 session" (singular), not "sessions"
+    expect(msg).not.toMatch(/sessions\b/);
+  });
+
+  // Scenario 7: 5 dead cwds → ONE toast with first 3 names + "and 2 more"
+  it("5 cwds missing → ONE aggregate toast with truncation", async () => {
+    vi.spyOn(config, "getRelaunchOnStartup").mockReturnValue(true);
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    // Map.values() preserves insertion order in modern JS, so the toast
+    // truncation will list folders in the order they were tracked here.
+    const folders = ["D:\\a", "D:\\b", "D:\\c", "D:\\d", "D:\\e"];
+    const terms = folders.map((cwd, i) =>
+      makeTerminal({ name: `claude · ${cwd}`, cwd, pid: 100 + i })
+    );
+    (vscodeMock.window as Record<string, unknown>).terminals = terms;
+
+    const sm = new SessionManager(createMemento() as unknown as import("vscode").Memento);
+    await (sm as Private)._reattachPromise;
+
+    // All 5 disposed
+    for (const t of terms) {
+      expect((t as { dispose: ReturnType<typeof vi.fn> }).dispose).toHaveBeenCalled();
+    }
+
+    // ONE toast with first 3 folder names + "and 2 more"
+    expect(vscodeMock.window.showInformationMessage).toHaveBeenCalledTimes(1);
+    const msg = vi.mocked(vscodeMock.window.showInformationMessage).mock.calls[0][0];
+    expect(msg).toContain("D:\\a");
+    expect(msg).toContain("D:\\b");
+    expect(msg).toContain("D:\\c");
+    expect(msg).toContain("and 2 more");
+    // d and e should NOT appear by name
+    expect(msg).not.toContain("D:\\d");
+    expect(msg).not.toContain("D:\\e");
   });
 
   // Scenario 19 from the design spec
