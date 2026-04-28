@@ -194,6 +194,70 @@ export class SessionManager implements vscode.Disposable {
     terminal.sendText(cmd);
   }
 
+  /**
+   * Variant of `_dispatchClaudeCommand` for restored terminals.
+   *
+   * Same 3-tier path, but the delay-fallback prepends  (Ctrl-C,
+   * Ctrl-U) before sending `claude`, with a 50ms breather. On POSIX shells
+   * and Windows PowerShell with PSReadLine (default), this clears any
+   * buffered prompt input the user typed before VS Code closed. On legacy
+   * cmd.exe and PowerShell-without-PSReadLine these escape sequences are
+   * not interpreted as kill-line — see "Known limitations" in the design.
+   *
+   * The clear-prefix is NOT sent on the fast or slow paths because
+   * shell-integration's `executeCommand` handles command boundaries
+   * safely; sending raw bytes there could race the integration handshake.
+   */
+  private async _dispatchClaudeIntoRestoredTerminal(terminal: vscode.Terminal): Promise<void> {
+    const cmd = getClaudeCommand();
+
+    // Fast path: shell integration already active
+    if (terminal.shellIntegration) {
+      log(`[reattach:dispatch] fast path — shell integration already active`);
+      terminal.shellIntegration.executeCommand(cmd);
+      return;
+    }
+
+    // Slow path: wait up to 2 s for shell integration to activate
+    const shellIntegrationAvailable = await new Promise<boolean>((resolve) => {
+      let disposed = false;
+
+      const timeoutHandle = setTimeout(() => {
+        if (!disposed) {
+          disposed = true;
+          listener.dispose();
+          log(`[reattach:dispatch] slow path timed out — falling back to delay sendText`);
+          resolve(false);
+        }
+      }, 2000);
+
+      const listener = vscode.window.onDidChangeTerminalShellIntegration((e) => {
+        if (e.terminal === terminal && !disposed) {
+          disposed = true;
+          clearTimeout(timeoutHandle);
+          listener.dispose();
+          log(`[reattach:dispatch] slow path — shell integration activated`);
+          e.shellIntegration.executeCommand(cmd);
+          resolve(true);
+        }
+      });
+    });
+
+    if (shellIntegrationAvailable) {
+      return;
+    }
+
+    // Delay fallback — CLEAR-PREFIX REQUIRED HERE.
+    //  (Ctrl-C) signals the running foreground command; no-op on a clean prompt.
+    //  (Ctrl-U) clears the current input line on POSIX shells and PowerShell+PSReadLine.
+    log(`[reattach:dispatch] delay fallback — sending clear-prefix then claude`);
+    terminal.sendText("", false);
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    const delayMs = getLaunchDelayMs();
+    await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    terminal.sendText(cmd);
+  }
+
   /** Focus an existing session's editor tab. */
   focusSession(session: ActiveSession): void {
     session.terminal.show(false);
