@@ -250,4 +250,133 @@ describe("reattach on startup — orchestration", () => {
     // is tracked in _sessions but no reattach dispatch fires for it.
     expect((newTerm as { sendText: ReturnType<typeof vi.fn> }).sendText).not.toHaveBeenCalled();
   });
+
+  // Scenario 14: AUTO_LAUNCH_KEY interaction
+  // Reattach dispatches first; AUTO_LAUNCH_KEY launchSession finds the
+  // session and focuses it (no duplicate createTerminal).
+  it("AUTO_LAUNCH_KEY + reattach for the same folder → one dispatch + one focus, no duplicate terminal", async () => {
+    vi.spyOn(config, "getRelaunchOnStartup").mockReturnValue(true);
+    vi.spyOn(config, "getReuseTerminal").mockReturnValue(true);
+    const executeCommand = vi.fn();
+    const term = makeTerminal({
+      name: "claude · foo",
+      cwd: "D:\\foo",
+      pid: 42,
+      shellIntegration: { executeCommand },
+    });
+    (vscodeMock.window as Record<string, unknown>).terminals = [term];
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    const mem = createMemento({ [PID_KEY]: { "D:\\foo": 99 } });
+
+    const sm = new SessionManager(mem as unknown as import("vscode").Memento);
+    await (sm as Private)._reattachPromise;
+
+    // Dispatch happened
+    expect(executeCommand).toHaveBeenCalledTimes(1);
+    const dispatchCallOrder = executeCommand.mock.invocationCallOrder[0];
+
+    // Now simulate the AUTO_LAUNCH_KEY block — call launchSession for the same folder.
+    // Because reuseExistingTerminal is true, this should focus the existing
+    // session, not create a new terminal.
+    const showSpy = vi.spyOn(term as { show: ReturnType<typeof vi.fn> }, "show");
+    await sm.launchSession("D:\\foo");
+
+    expect(showSpy).toHaveBeenCalled();
+    const focusCallOrder = showSpy.mock.invocationCallOrder[0];
+    expect(focusCallOrder).toBeGreaterThan(dispatchCallOrder);
+    // No new terminal was created via createTerminal beyond the original
+    expect(vscodeMock.window.createTerminal).not.toHaveBeenCalled();
+  });
+
+  // Scenario 15: dispose racing with reattach
+  it("dispose() mid-reattach → no PID write, no toast, no exception", async () => {
+    vi.spyOn(config, "getRelaunchOnStartup").mockReturnValue(true);
+    // processId resolves after a delay — gives us time to dispose mid-await
+    let resolveProcessId: (v: number | undefined) => void;
+    const processIdPromise = new Promise<number | undefined>((r) => {
+      resolveProcessId = r;
+    });
+    const term = {
+      name: "claude · foo",
+      show: vi.fn(),
+      sendText: vi.fn(),
+      dispose: vi.fn(),
+      processId: processIdPromise,
+      shellIntegration: { executeCommand: vi.fn() },
+      creationOptions: { cwd: "D:\\foo" },
+    };
+    (vscodeMock.window as Record<string, unknown>).terminals = [term];
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    const mem = createMemento();
+
+    const sm = new SessionManager(mem as unknown as import("vscode").Memento);
+
+    // Dispose immediately — _disposed is now set
+    sm.dispose();
+
+    // Resolve the processId so the routine can complete
+    resolveProcessId!(42);
+
+    // Wait for the routine to settle
+    await (sm as Private)._reattachPromise;
+    await (sm as Private)._pidWriteQueue;
+
+    // No PID write — _persistSessionPid no-ops after dispose()
+    expect(mem.update).not.toHaveBeenCalled();
+    // No toast (gated on !_disposed)
+    expect(vscodeMock.window.showInformationMessage).not.toHaveBeenCalled();
+  });
+
+  // Scenario 11: workspaceState.update rejection mid-chain → queue self-heals
+  it("workspaceState.update rejects once → next persist still succeeds", async () => {
+    vi.spyOn(config, "getRelaunchOnStartup").mockReturnValue(true);
+    const executeCommand = vi.fn();
+    const t1 = makeTerminal({
+      name: "claude · a",
+      cwd: "D:\\a",
+      pid: 1,
+      shellIntegration: { executeCommand },
+    });
+    const t2 = makeTerminal({
+      name: "claude · b",
+      cwd: "D:\\b",
+      pid: 2,
+      shellIntegration: { executeCommand },
+    });
+    (vscodeMock.window as Record<string, unknown>).terminals = [t1, t2];
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    const mem = createMemento();
+    // First update rejects — second + onward succeed
+    mem.update.mockImplementationOnce(() => Promise.reject(new Error("disk full")));
+
+    const sm = new SessionManager(mem as unknown as import("vscode").Memento);
+    await (sm as Private)._reattachPromise;
+    await (sm as Private)._pidWriteQueue;
+
+    // Both dispatches happened
+    expect(executeCommand).toHaveBeenCalledTimes(2);
+    // The second update succeeded → store has at least t2's PID
+    const stored = mem._store.get(PID_KEY) as Record<string, number>;
+    expect(stored).toBeDefined();
+    // Order isn't guaranteed (parallel), but at least one PID landed
+    expect(Object.keys(stored).length).toBeGreaterThanOrEqual(1);
+  });
+
+  // Scenario 13: PID cleanup runs whether the setting is on or off
+  it("_clearSessionPid runs unconditionally (setting off does not gate close cleanup)", async () => {
+    vi.spyOn(config, "getRelaunchOnStartup").mockReturnValue(false);
+    const term = makeTerminal({ name: "claude · foo", cwd: "D:\\foo", pid: 42 });
+    (vscodeMock.window as Record<string, unknown>).terminals = [term];
+    const mem = createMemento({ [PID_KEY]: { "D:\\foo": 42 } });
+
+    const sm = new SessionManager(mem as unknown as import("vscode").Memento);
+    await (sm as Private)._reattachPromise;
+
+    // Reattach didn't fire (setting off). Now simulate close.
+    (sm as Private)._removeByKey(term);
+    await (sm as Private)._pidWriteQueue;
+
+    // PID cleared even though setting is off
+    expect(mem._store.get(PID_KEY)).toEqual({});
+  });
 });
