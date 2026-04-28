@@ -33,3 +33,7 @@ export function getLaunchDelayMs(): number {
 export function getDebugLogging(): boolean {
   return getConfig().get<boolean>("debugLogging", false);
 }
+
+export function getRelaunchOnStartup(): boolean {
+  return getConfig().get<boolean>("relaunchOnStartup", true);
+}

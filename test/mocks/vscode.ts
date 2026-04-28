@@ -165,6 +165,43 @@ class OutputChannelStub {
 }
 
 // ---------------------------------------------------------------------------
+// Memento (workspaceState / globalState) factory
+//
+// Tests use this to construct mock Mementos with per-call control over
+// `update` (e.g. via vi.mockImplementationOnce). The default `update`
+// resolves to undefined and writes through to the internal Map; tests can
+// override by calling `update.mockImplementationOnce(...)`.
+// ---------------------------------------------------------------------------
+
+/**
+ * Spyable Memento mock — use vi.fn's mockImplementationOnce to inject
+ * failures (e.g. an update() that rejects on the first call only).
+ */
+export interface MementoMock {
+  get: ReturnType<typeof vi.fn> & (<T>(key: string, defaultValue?: T) => T | undefined);
+  update: ReturnType<typeof vi.fn> & ((key: string, value: unknown) => Promise<void>);
+  keys: ReturnType<typeof vi.fn> & (() => string[]);
+  /** Direct access to the backing store for assertions in tests */
+  readonly _store: Map<string, unknown>;
+}
+
+export function createMemento(initial: Record<string, unknown> = {}): MementoMock {
+  const store = new Map<string, unknown>(Object.entries(initial));
+  const get = vi.fn(<T>(key: string, defaultValue?: T): T | undefined => {
+    return (store.has(key) ? store.get(key) : defaultValue) as T | undefined;
+  }) as MementoMock["get"];
+  const update = vi.fn(async (key: string, value: unknown): Promise<void> => {
+    if (value === undefined) {
+      store.delete(key);
+    } else {
+      store.set(key, value);
+    }
+  }) as MementoMock["update"];
+  const keys = vi.fn(() => Array.from(store.keys())) as MementoMock["keys"];
+  return { get, update, keys, _store: store };
+}
+
+// ---------------------------------------------------------------------------
 // FileSystemWatcher stub
 // ---------------------------------------------------------------------------
 
@@ -256,4 +293,17 @@ export const commands = {
 
 export const env = {
   openExternal: vi.fn().mockResolvedValue(true),
+};
+
+// ---------------------------------------------------------------------------
+// extensions namespace
+//
+// Minimal stub: only getExtension is implemented. Tests that touch other
+// vscode.extensions APIs (getExtensionById, all, onDidChange) must add
+// stubs here — relying on `undefined` will throw "X is not a function" at
+// test runtime, which is a clear failure mode (not silent).
+// ---------------------------------------------------------------------------
+
+export const extensions = {
+  getExtension: vi.fn().mockReturnValue(undefined),
 };
