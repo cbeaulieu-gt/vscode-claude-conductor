@@ -1,6 +1,6 @@
 # Design Spec — Favorites Sidebar Section (Issue #75)
 
-**Status:** Draft v2 (post inquisitor review)
+**Status:** Draft v3 (post second inquisitor review)
 **Date:** 2026-04-28
 **Issue:** [#75](https://github.com/cbeaulieu-gt/vscode-claude-conductor/issues/75)
 **Branch:** `75-favorites`
@@ -8,13 +8,11 @@
 ## Revision History
 
 - **v1 (2026-04-28)** — initial brainstorm output.
-- **v2 (2026-04-28)** — addressed inquisitor charges:
-  - Cross-panel race fixed by extracting a `FavoritesStore` service (charge 1).
-  - Synchronous `existsSync` replaced with async stat + TTL cache + UNC skip (charge 2).
-  - `viewItem` migration explicitly acknowledged with package.json menu-clause updates (charge 3).
-  - Storage shape changed to `Array<{path: string}>` with a one-shot read-side migration (charge 4).
-  - Missing-row click no longer hijacks `TreeItem.command` — relies on context menu + tooltip (charge 5).
-  - Risks/Non-Goals expanded for charges 6–11 (dedup canonical key, Settings Sync rationale, max favorites cap, refresh-storm split, test plan rewritten to behavior-based, cross-workspace acknowledgement).
+- **v2 (2026-04-28)** — addressed inquisitor pass 1 (cross-panel race, UNC hangs, viewItem migration first attempt, storage shape, click-hijack).
+- **v3 (2026-04-28)** — addressed inquisitor pass 2:
+  - **Blocker fixes:** composite single-token contextValues (no multi-token regex matching); serialized persist queue with snapshot rollback; `version` envelope on storage with deferred-on-mutation migration; click-on-missing opens relocate dialog directly.
+  - **Smaller fixes:** `peek()` keeps last-known on TTL expiry with `stale` flag; regex anchoring; bidirectional drift test; render-path 25-cap enforcement; relocate same-path toast restored; targeted `onDidChangeTreeData` invalidation; UNC launch failure feeds existence cache; cache eviction on remove/relocate; explicit `isWorktreePath` predicate sourced from `projectGrouping.ts`.
+  - **YAGNI cut:** removed the `id: string` UUID field. Storage shape stays object-based (extensible) without a speculative identifier no v1 feature reads.
 
 ## Summary
 
@@ -28,16 +26,17 @@ Favorites is a **manual curation overlay**, not a usage tracker. Pinning a proje
 - Reuse `projectGrouping.ts` and `RecentProjectsProvider` patterns — minimal new architecture.
 - Tolerate transient absence (unmounted drives) and intentional moves (folder relocated on disk) without silent data loss.
 - Keep the design scoped — no drag-to-reorder, no per-worktree pinning, no auto-tracking.
-- Future-proof storage so deferred features (drag-reorder, sync, frequency) don't force a schema migration later.
+- Extensible storage shape so deferred features land non-breakingly.
 
 ## Non-Goals (with rationale)
 
-- **Drag-to-reorder.** Deferred. Soft cap of 25 favorites enforced at `addFavorite` (toast on overflow); past that, alphabetical-only ordering is unusable and we revisit the deferred feature.
-- **Per-worktree favorites.** Excluded. Favorites are project-rooted; worktrees come along via grouping. Both `addFavorite` and `locateFavorite` reject worktree paths.
+- **Drag-to-reorder.** Deferred. Soft cap of 25 favorites enforced both at `addFavorite` (toast on overflow) AND at the render path (truncate display + log warning if storage drifts past). Past 25 alphabetical-only ordering is unusable; that's the trigger to revisit.
+- **Per-worktree favorites.** Excluded. Favorites are project-rooted; worktrees come along via grouping. Both `addFavorite` and `locateFavorite` reject worktree paths via the shared `isWorktreePath()` predicate.
 - **Auto-frequency tracking.** Out of scope per the issue.
-- **Settings Sync (`setKeysForSync`).** Explicitly NOT registered in v1 because path portability across machines is unsolved (drive letters, project locations differ across desktop/laptop). Revisit when a user requests it AND proposes a path-resolution strategy. The forward-compatible storage shape (see Storage) means adding sync later is non-breaking — the `id` field can serve as a sync-portable identifier independent of the `path`.
-- **Cross-workspace filtering.** Favorites are user-global. Opening a workspace where most favorited paths live elsewhere produces `(missing)` rows for those paths. v1 accepts this; the dimmed visual treatment is intentionally unobtrusive so the panel doesn't read as "everything is broken."
-- **Promoting Favorites into a workspace-level setting.** Stays user-global.
+- **Settings Sync (`setKeysForSync`).** Explicitly NOT registered in v1 because path portability across machines is unsolved (drive letters, project locations differ). The object-shape storage means adding sync later is non-breaking. A sync-portable identifier (UUID, content hash, or symbolic name) would be added at that time — *not* speculatively now.
+- **Stable per-entry identifier.** Removed from v3. v2 added `id: string` to "future-proof" sync; the inquisitor pass correctly flagged this as YAGNI — no v1 feature reads it, multi-window cold-start migrates the same v1 data twice and races UUIDs, and any future identifier scheme has constraints we don't know yet (deterministic vs random, content vs path). Storage stays `[{path: string}]`; the object envelope is the actual extensibility hedge.
+- **Cross-workspace filtering.** Favorites are user-global. Opening a workspace where most favorited paths live elsewhere produces `(missing)` rows for those paths. v1 accepts this; the dimmed visual treatment is intentionally unobtrusive.
+- **Symlink/junction canonicalization.** Canonical key skips `realpathSync` (which throws on missing paths the relocate flow needs to handle uniformly). Documented tradeoff: two distinct path strings resolving to the same directory produce duplicate entries.
 
 ## Architecture
 
@@ -57,24 +56,26 @@ Add a third `TreeView` contribution in `package.json`:
 
 ### `FavoritesStore` service (new file: `src/favoritesStore.ts`)
 
-A standalone service that owns all favorites state. **Both providers consult it; neither owns it.** This is the architectural crux that fixes the cross-panel race.
+A standalone service that owns all favorites state. Both providers consult it; neither owns it. The persist path is **serialized**: at most one `memento.update` is in flight at a time, ensuring rollback semantics are deterministic.
 
 ```typescript
-export interface FavoritesEntry {
-  /** Canonical user-facing path, original case preserved. */
-  path: string;
-  /** Stable id (UUID v4) — survives path relocation, future-proofs sync. */
-  id: string;
+export interface FavoritesEntry { path: string; }
+export interface FavoritesStorageEnvelope {
+  version: 2;
+  entries: FavoritesEntry[];
 }
 
 export class FavoritesStore {
   private entries: FavoritesEntry[] = [];
-  private keyIndex: Set<string> = new Set();   // lowercased canonical keys
+  private keyIndex: Set<string> = new Set();
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChange = this._onDidChange.event;
 
+  // Serialized persist queue
+  private persistChain: Promise<void> = Promise.resolve();
+
   constructor(private readonly memento: vscode.Memento) {
-    this.entries = readAndMigrate(memento);
+    this.entries = readWithoutMigrating(memento);  // pure read; no write side effects
     this.rebuildIndex();
   }
 
@@ -84,66 +85,115 @@ export class FavoritesStore {
   }
   list(): readonly FavoritesEntry[] { return this.entries; }
 
-  // ---- Async mutations (called from commands) ----
-  async add(path: string): Promise<{ ok: boolean; reason?: string }> { /* ... */ }
-  async remove(path: string): Promise<void> { /* ... */ }
-  async relocate(oldPath: string, newPath: string): Promise<{ ok: boolean; reason?: string }> { /* ... */ }
+  // ---- Async mutations — all routed through enqueueMutation ----
+  async add(path: string): Promise<{ ok: boolean; reason?: string }> { ... }
+  async remove(path: string): Promise<void> { ... }
+  async relocate(oldPath: string, newPath: string): Promise<{ ok: boolean; reason?: string }> { ... }
 
-  private rebuildIndex(): void { /* ... */ }
+  /**
+   * Serialized mutation: snapshot, apply in memory, fire change, then chain
+   * the persist behind any in-flight persist. Rollback to snapshot on reject.
+   */
+  private enqueueMutation(apply: (entries: FavoritesEntry[]) => FavoritesEntry[]): Promise<void> {
+    const snapshot = [...this.entries];
+    this.entries = apply(snapshot);
+    this.rebuildIndex();
+    this._onDidChange.fire();
+
+    this.persistChain = this.persistChain
+      .catch(() => { /* swallow prior errors; each link handles its own rollback */ })
+      .then(() => this.memento.update(STORAGE_KEY, { version: 2, entries: this.entries }))
+      .catch(err => {
+        // Roll back to the snapshot taken when *this* mutation was enqueued.
+        // If subsequent mutations succeeded on top of this one, they're now
+        // also rolled back — that's the contract of serialized persists:
+        // failure of an earlier persist invalidates all later in-memory
+        // mutations chained on it.
+        this.entries = snapshot;
+        this.rebuildIndex();
+        this._onDidChange.fire();
+        showPersistErrorToast(err);
+      });
+
+    return this.persistChain;
+  }
+
+  private rebuildIndex(): void {
+    this.keyIndex = new Set(this.entries.map(e => canonicalKey(e.path)));
+  }
 }
 ```
 
-**Why this fixes the race:** providers do not cache the favorites set across an `await`. Inside `getTreeItem(element)` — which VS Code calls synchronously per visible row — they call `store.isFavorited(element.path)` and read the live index. When the store mutates, it updates `entries` and `keyIndex` *first* (synchronous), then fires `onDidChange`, then persists to `globalState` asynchronously in the background. Stale paint is impossible because there is no stale snapshot to paint against — the index is the only source of truth and it's read fresh every render.
+**Why the persist queue is serialized:** the inquisitor's pass-2 charge correctly identified that `memento.update` rejecting after multiple mutations have stacked produces undefined rollback behavior. Serializing means there's only ever one in-flight persist whose rejection has unambiguous semantics: roll the in-memory state back to the snapshot taken when *that mutation* was enqueued. Any subsequent mutations chained behind it are also rolled back — they were predicated on the failed persist's success.
 
-**Persistence sequencing:** mutations apply to in-memory state synchronously; the async `memento.update()` is fire-and-forget but errors surface through a `.catch(handlePersistError)` that toasts the user and rolls back the in-memory change.
+This costs latency on rapid-fire toggles (each waits behind the previous's persist) but is correct. For a curated list capped at 25 entries, latency is irrelevant.
 
 ### Canonical Key
 
 ```typescript
 /**
- * Canonical lookup key for dedup, isFavorited(), and store lookups.
- * Pipeline: separator normalize → trim trailing separator → case-fold (lower).
- *
- * Notably does NOT call fs.realpathSync — symlink/junction resolution is
- * deferred to v2 because realpathSync on missing paths throws, and the
- * caller cannot distinguish "missing path that's also a symlink" from
- * "missing path." Acknowledged tradeoff: two distinct symlink-resolved-same
- * paths produce duplicate favorite entries. Document this in user-facing
- * docs ("Favorites tracks paths as you typed them").
+ * Canonical lookup key. Pipeline: separator normalize → trim trailing
+ * separator → case-fold (lower). Does NOT consult realpathSync — see
+ * Non-Goals for the symlink tradeoff rationale.
  */
 function canonicalKey(p: string): string {
   return p
-    .replace(/\\/g, "/")           // separator normalize
-    .replace(/\/+$/, "")           // trim trailing separators
-    .toLowerCase();                // case-fold (Windows-correct, harmless on POSIX)
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "")
+    .toLowerCase();
 }
 ```
 
-This canonical key is used in **every** dedup check: `add`, `relocate`, `isFavorited`, and the menu `when`-clause `viewItem` derivation. Tests assert the same key derivation in both `package.json` menu-clause logic and the store.
+Used identically in: `add` dedup, `relocate` dedup, `isFavorited`, and the existence cache key. No alternate normalizations anywhere.
 
-### Existence Check (async, cached, UNC-aware)
+### Worktree Path Predicate
 
-Replace the v1 sync `fs.existsSync` design with an async cache:
+`isWorktreePath(p: string): boolean` is exported from `src/projectGrouping.ts` (the same module that already has the worktree-detection regex internally). The predicate matches the existing detection rule: path ends with `/.worktrees/<single-segment>` after separator normalization, case-insensitive.
 
 ```typescript
+// Exported from src/projectGrouping.ts
+export function isWorktreePath(p: string): boolean {
+  return /\/\.worktrees\/[^/]+$/i.test(p.replace(/\\/g, "/"));
+}
+```
+
+This is the *only* predicate used to reject worktree paths in `addFavorite` and `locateFavorite`. No other heuristics, no shell-out to git.
+
+### Existence Cache (async, stale-aware, UNC-skipping)
+
+```typescript
+type ExistenceState =
+  | { kind: "exists"; checkedAt: number }
+  | { kind: "missing"; checkedAt: number }
+  | { kind: "unknown" };  // never checked
+
 class PathExistenceCache {
-  private cache = new Map<string, { exists: boolean; checkedAt: number }>();
+  private cache = new Map<string, ExistenceState>();
   private readonly TTL_MS = 30_000;
   private readonly STAT_TIMEOUT_MS = 500;
 
-  /** Synchronous read for getTreeItem. Returns last-known value or 'unknown'. */
-  peek(path: string): "exists" | "missing" | "unknown" {
+  /**
+   * Synchronous read for getTreeItem.
+   * Returns: 'exists' | 'missing' | { kind: 'missing', stale: true } | 'unknown'.
+   * Stale-missing keeps the dimmed render until the next stat lands.
+   */
+  peek(path: string): { kind: "exists" } | { kind: "missing"; stale: boolean } | { kind: "unknown" } {
     const e = this.cache.get(canonicalKey(path));
-    if (!e) return "unknown";
-    if (Date.now() - e.checkedAt > this.TTL_MS) return "unknown";
-    return e.exists ? "exists" : "missing";
+    if (!e || e.kind === "unknown") return { kind: "unknown" };
+    const stale = Date.now() - e.checkedAt > this.TTL_MS;
+    if (e.kind === "missing") return { kind: "missing", stale };
+    if (stale) return { kind: "unknown" };  // exists+stale → re-confirm; safe to show present optimistically meanwhile
+    return { kind: "exists" };
   }
 
-  /** Async refresh — non-blocking, with timeout. UNC paths skipped. */
-  async refresh(paths: string[]): Promise<void> {
-    const toCheck = paths.filter(p => !isLikelyNetworkPath(p));  // skip \\server\share
-    // ...stat each with Promise.race against STAT_TIMEOUT_MS, populate cache, fire event...
-  }
+  /** Mark a path missing immediately (e.g., after a launch failure). */
+  markMissing(path: string): void { ... }
+
+  /** Evict cache entry — called on remove/relocate. */
+  evict(path: string): void { ... }
+
+  /** Background refresh; non-blocking, with timeout. UNC paths skipped. */
+  async refresh(paths: string[]): Promise<void> { ... }
 }
 
 function isLikelyNetworkPath(p: string): boolean {
@@ -152,257 +202,327 @@ function isLikelyNetworkPath(p: string): boolean {
 ```
 
 **Behavior:**
-- Render time: `peek()` returns `"unknown"` initially; treat as optimistic-present (no `(missing)` decoration). Tree renders instantly.
-- Refresh: a background pass calls `cache.refresh(allFavoritedPaths)` on store load and on `onDidChange`. When stat results land, fire `_onDidChangeDecorations` so providers re-render rows with updated missing flags.
-- UNC paths: skipped by the refresh loop; always rendered as optimistic-present. User who favorites `\\server\share\proj` won't see `(missing)` if the share is offline — they'll get a launch error if they click. This is the correct tradeoff vs hanging the extension host.
-- TTL: 30s — re-stat happens at most twice per minute even with rapid refresh churn.
-
-**Why this addresses the inquisitor's charge:** sync stat on disconnected UNC paths can block the extension host for the SMB timeout (tens of seconds). The async + timeout + UNC-skip design caps the worst case at 500ms per non-UNC path, run on a background async pass that doesn't block any tree render.
+- `peek`'s asymmetric staleness (return `unknown` for stale-exists but stale-missing for stale-missing) avoids the v2 flicker: a confirmed-missing entry stays dimmed across TTL expiry until a fresh stat result lands. No 30s on/off oscillation.
+- `markMissing(path)` is called from `launchSession` failure handlers when launching a UNC favorite fails — the cache learns from launch attempts so repeated clicks don't keep optimistic-rendering an unreachable path.
+- `evict(path)` is called by `FavoritesStore` from `remove` and `relocate` so stat results landing for stale paths never fire `onDidChange` for non-existent entries.
+- UNC paths skipped by `refresh()` are still rendered as optimistic-present until a launch failure flips them to missing via `markMissing()` — feedback loop closes the v2 gap.
 
 ### Provider Refresh Decoupling
 
-Two distinct refresh axes, two distinct events:
-
-| Event | What changed | Provider response |
+| Event | Trigger | Provider response |
 |---|---|---|
-| `onDidChangeSessions` (existing) | Active session set | RecentProjectsProvider re-fetches `getAllFolders()`, re-groups, fires `onDidChangeTreeData(undefined)` |
-| `FavoritesStore.onDidChange` (new) | Favorites set | Both providers fire `onDidChangeTreeData(undefined)` *without* re-fetching folders. VS Code re-calls `getTreeItem` per row, which reads the live `isFavorited()` and renders the new icon. No re-grouping, no I/O. |
-| `existenceCache.onDidChange` (new) | A previously-unknown path now has a known existence state | Both providers fire `onDidChangeTreeData(undefined)`. Same pattern — re-render only, no re-fetch. |
+| `onDidChangeSessions` (existing) | Active session set changes | RecentProjectsProvider re-fetches `getAllFolders()`, re-groups, fires `onDidChangeTreeData(undefined)` |
+| `FavoritesStore.onDidChange` | Favorites set changes | Both providers fire `onDidChangeTreeData(toggledElement)` (targeted) when a single path was toggled. For multi-path mutations (e.g., relocate-with-dedup which removes one and updates another), fire `onDidChangeTreeData(undefined)`. |
+| `existenceCache.onDidChange` | A row's existence state transitioned (e.g., stat result landed, `markMissing` called) | Both providers fire `onDidChangeTreeData(specificElement)` if the change is single-path; broad invalidation only when refresh batch returns >1 transition. |
 
-**Why this fixes the refresh storm:** the v1 design had `RecentProjectsProvider` re-running `getAllFolders()` on every favorites change. That's three full data refreshes per logical action (open session → favorite → idle bell). v2 splits "data changed" from "decoration changed"; favorites toggles trigger only icon/contextValue re-render, not folder re-fetch.
+**Targeted invalidation:** `FavoritesStore` exposes `onDidChange` as `Event<{ kind: "single"; path: string } | { kind: "broad" }>` (instead of `Event<void>`) so consumers can choose targeted vs full invalidation. Star-toggles emit `{ kind: "single", path }`; relocate-with-dedup and bulk operations emit `{ kind: "broad" }`.
 
-### `viewItem` Context Values & Migration
+### `viewItem` Context Values — Composite Single Tokens
 
-**Existing state:** `RecentProjectsProvider` rows currently have `contextValue = "recentProject"` (`treeView.ts:159`), and `package.json:143` has a menu clause `viewItem == recentProject`. The v1 spec silently changed `contextValue` to `projectRoot.unfavorited`, which would have broken the existing menu clause.
+**Crux of the v3 fix:** VS Code's `viewItem` matching with `==` is literal string equality. v2's "space-separated multi-token" claim was wrong. v3 uses *single composite tokens*.
 
-**v2 migration plan:**
+| Provider | Row state | `contextValue` |
+|---|---|---|
+| RecentProjectsProvider (top-level) | not favorited | `recentProject.unfavorited` |
+| RecentProjectsProvider (top-level) | favorited | `recentProject.favorited` |
+| RecentProjectsProvider (top-level) | favorited + missing | `recentProject.missing` |
+| FavoritesProvider (top-level) | present | `favoriteProject.favorited` |
+| FavoritesProvider (top-level) | missing | `favoriteProject.missing` |
+| Either provider (worktree child) | any | `worktreeChild` |
+| ActiveSessionsProvider | unchanged | `activeSession` |
 
-1. Define exported constants in `src/treeView.ts`:
-   ```typescript
-   export const VIEW_ITEM = {
-     PROJECT_ROOT_FAVORITED:   "projectRoot.favorited",
-     PROJECT_ROOT_UNFAVORITED: "projectRoot.unfavorited",
-     PROJECT_ROOT_MISSING:     "projectRoot.missing",
-     WORKTREE_CHILD:           "worktreeChild",
-     // existing values preserved for back-compat
-     RECENT_PROJECT:           "recentProject",
-     ACTIVE_SESSION:           "activeSession",
-   } as const;
-   ```
-2. **RecentProjectsProvider rows** — `contextValue` becomes a *space-separated multi-value*: `"recentProject projectRoot.favorited"` or `"recentProject projectRoot.unfavorited"`. VS Code's `viewItem` matching handles space-separated tokens via the `=~` regex operator. This preserves the existing `viewItem == recentProject` clause AND enables new `viewItem =~ /projectRoot\\.favorited/` clauses without breaking anything.
-3. **FavoritesProvider rows** — `contextValue` is `"favoritedProject projectRoot.favorited"` (or `projectRoot.missing` when missing). The first token is a Favorites-specific marker; the second is the shared favorited-state token.
-4. **Test:** add a `package-json-context-keys.test.ts` that parses `package.json` menu `when` clauses, extracts every `viewItem` literal, and asserts it appears in the `VIEW_ITEM` constants. This is the drift detector the inquisitor demanded.
+**`package.json` migration of the existing `recentProject` clause:**
 
-### Storage
-
-| Key | Type | Scope | Notes |
-|---|---|---|---|
-| `claudeConductor.favorites` | `FavoritesEntry[]` | `globalState` (per-machine) | Each entry has `path` and stable `id`. Order is **not** UX-visible — alphabetical sort happens at render time. |
-
-**Read-side migration** (handles users coming from v1 string-array storage if any preview exists; also defensive):
-
-```typescript
-function readAndMigrate(memento: vscode.Memento): FavoritesEntry[] {
-  const raw = memento.get("claudeConductor.favorites");
-  if (!Array.isArray(raw)) return [];
-  if (raw.length === 0) return [];
-
-  // v1 shape: string[]
-  if (typeof raw[0] === "string") {
-    const migrated = (raw as string[]).map(path => ({ path, id: randomUUID() }));
-    memento.update("claudeConductor.favorites", migrated);  // fire-and-forget upgrade
-    return migrated;
-  }
-
-  // v2 shape: FavoritesEntry[]
-  return raw as FavoritesEntry[];
+```jsonc
+{
+  "command": "claudeConductor.openRecentProject",  // existing command
+  "when": "view == claudeConductor.recentProjects && viewItem =~ /^recentProject\\b/",
+  "group": "inline"
 }
 ```
 
-**Why this matters:** four deferred features (drag-reorder, frequency tracking, sync, custom labels) all want per-entry metadata. `Array<{path, id}>` future-proofs all of them at zero current cost. The `id` field is the load-bearing piece — it survives path relocation, so a relocate operation preserves identity (sort position, future timestamps).
+The `\b` word-boundary anchor ensures `recentProject.favorited` matches but a hypothetical future `recentProjectFoo` does not. The `^` ensures we don't match `xyzrecentProject.favorited`.
+
+**Existing three `activeSession` clauses are unchanged** — `activeSession` is still a single literal token.
+
+```typescript
+// Exported from src/treeView.ts
+export const VIEW_ITEM = {
+  RECENT_PROJECT_FAVORITED:    "recentProject.favorited",
+  RECENT_PROJECT_UNFAVORITED:  "recentProject.unfavorited",
+  RECENT_PROJECT_MISSING:      "recentProject.missing",
+  FAVORITE_PROJECT_FAVORITED:  "favoriteProject.favorited",
+  FAVORITE_PROJECT_MISSING:    "favoriteProject.missing",
+  WORKTREE_CHILD:              "worktreeChild",
+  ACTIVE_SESSION:              "activeSession",
+} as const;
+```
+
+### Storage Envelope
+
+```typescript
+const STORAGE_KEY = "claudeConductor.favorites";
+
+interface FavoritesStorageEnvelope {
+  version: 2;
+  entries: { path: string }[];
+}
+```
+
+| Stored value | Interpretation |
+|---|---|
+| `undefined` or `null` | No favorites; treat as `[]`. |
+| `[]` | No favorites. |
+| `string[]` (no version field) | v1 legacy. Read-time: convert to envelope shape and replace storage atomically on first **mutation** (not on first read). Multiple windows reading concurrently see the same legacy data; the migration write happens once, when the user actually changes something. |
+| `{ version: 2, entries: [...] }` | v2 native; use as-is. |
+| `{ version: <other>, ... }` | Future shape unknown to this build. Toast: `"Favorites storage was written by a newer version of the extension; v1 read-only mode."` Treat as `[]` for writes (no destructive overwrite), render entries best-effort if `entries` is an array. |
+
+**Multi-window race resolution:** because migration is deferred to first mutation, two windows opening v1 data both display it correctly without writing. The first window to actually mutate triggers the migration write. The second window's `globalState` change listener (if VS Code provides one) or its next read picks up the new shape. Even if both windows mutate simultaneously, *no UUIDs are at stake* — `entries` is just `{path}` objects, dedup is canonical-key-based, and the worst case is a last-writer-wins on the entries array which is the same semantics as any concurrent storage update.
+
+**v1-build compatibility:** the envelope shape is an object, not an array. A v1 build reading the envelope would see `Array.isArray(raw) === false` and fall through to its empty-state branch — no crash, no misinterpretation, just "no favorites" until the user upgrades again or downgrades v2. This is acceptable for a manual-curation feature where loss of pinned-state on downgrade is recoverable (re-pin a few projects).
 
 ## Commands
 
 | Command ID | Args | Behavior |
 |---|---|---|
-| `claudeConductor.addFavorite` | `path: string` | Reject worktree paths. Reject if `entries.length >= 25` (toast: `"Favorites cap reached (25). Remove an entry first."`). Normalize. Append entry with new UUID. Fire `onDidChange`. Idempotent: if already favorited (canonical-key match), no-op silently. |
-| `claudeConductor.removeFavorite` | `path: string` | Remove entries whose canonical key matches. Fire `onDidChange`. No-op if absent. |
-| `claudeConductor.locateFavorite` | `oldPath: string` | Show `vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Select new location" })`. **Reject worktree paths from the dialog result** with toast `"Favorite the project root, not a worktree."` (the same guard `addFavorite` uses). On valid selection: if the new canonical key matches a *different* existing entry, drop the old entry and toast `"That folder is already in your Favorites — removed the missing entry."`. If the new key matches the OLD entry's key (case/separator tweaks), update path string in place. Otherwise: replace `path` on the matched entry, preserving `id`. Fire `onDidChange`. |
+| `claudeConductor.addFavorite` | `path: string` | Reject worktree paths via `isWorktreePath()` (toast). Reject when `entries.length >= 25` (toast: `"Favorites cap reached (25). Remove an entry first."`). Normalize. Append entry if not already present (canonical-key match). Idempotent. |
+| `claudeConductor.removeFavorite` | `path: string` | Remove entries whose canonical key matches. Evict from existence cache. No-op if absent. |
+| `claudeConductor.locateFavorite` | `oldPath: string` | Show `vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Select new location" })`. Reject if user cancels (no-op). Reject worktree paths via `isWorktreePath()` (toast). If `canonicalKey(newPath) === canonicalKey(oldPath)`: toast `"That's the same path. Choose a different folder."` and no-op. If `canonicalKey(newPath)` matches a different existing entry: drop the old entry, evict its cache key, toast `"That folder is already in your Favorites — removed the missing entry."`. Otherwise: replace `path` on the matched entry, evict the old cache key. |
+| `claudeConductor.openMissingFavoriteRelocator` | `path: string` | **New** — invoked from `TreeItem.command` on a missing favorite row (click handler). Internally just calls `claudeConductor.locateFavorite(path)`. Exists separately so the on-click and right-click-menu paths can be tested and potentially diverge later. Registered but hidden from the command palette via `commandPalette` menu `when` clause set to `false`. |
 
 ## Menus
 
 ```jsonc
 "menus": {
   "view/item/context": [
+    // Star toggle (inline) — Recent + Favorites, unfavorited row → add
     {
       "command": "claudeConductor.addFavorite",
-      "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem =~ /projectRoot\\.unfavorited/",
+      "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem == recentProject.unfavorited",
       "group": "inline@1"
     },
+    // Star toggle (inline) — Recent, favorited row → remove (Recent shows the favorited state too)
     {
       "command": "claudeConductor.removeFavorite",
-      "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem =~ /projectRoot\\.favorited/",
+      "when": "view == claudeConductor.recentProjects && viewItem == recentProject.favorited",
       "group": "inline@1"
     },
+    // Star toggle (inline) — Favorites row → remove
+    {
+      "command": "claudeConductor.removeFavorite",
+      "when": "view == claudeConductor.favorites && viewItem == favoriteProject.favorited",
+      "group": "inline@1"
+    },
+    // Missing favorite — Locate Folder (inline + context)
     {
       "command": "claudeConductor.locateFavorite",
-      "when": "view == claudeConductor.favorites && viewItem =~ /projectRoot\\.missing/",
-      "group": "missing@1"
+      "when": "view == claudeConductor.favorites && viewItem =~ /^(favoriteProject|recentProject)\\.missing$/",
+      "group": "inline@1"
     },
+    // Missing favorite — Remove (context only, secondary)
     {
       "command": "claudeConductor.removeFavorite",
-      "when": "view == claudeConductor.favorites && viewItem =~ /projectRoot\\.missing/",
+      "when": "view == claudeConductor.favorites && viewItem =~ /^(favoriteProject|recentProject)\\.missing$/",
       "group": "missing@2"
     },
-    // Non-inline duplicates for context-menu discoverability
+    // Non-inline duplicates for right-click discoverability
     {
       "command": "claudeConductor.addFavorite",
-      "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem =~ /projectRoot\\.unfavorited/",
+      "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem == recentProject.unfavorited",
       "group": "favorites@1"
     },
     {
       "command": "claudeConductor.removeFavorite",
-      "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem =~ /projectRoot\\.favorited/",
+      "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && (viewItem == recentProject.favorited || viewItem == favoriteProject.favorited)",
       "group": "favorites@1"
     }
+  ],
+  "commandPalette": [
+    { "command": "claudeConductor.openMissingFavoriteRelocator", "when": "false" }
   ]
 }
 ```
 
-The `=~` operator matches against the multi-token contextValue string. Existing `viewItem == recentProject` clauses (package.json:143) continue to match unchanged.
+**Migration to existing `recentProject` clause** (`package.json:143`): change `"viewItem == recentProject"` → `"viewItem =~ /^recentProject\\b/"`. The regex matches any `recentProject.<state>` composite. `\b` prevents partial matches against future tokens.
 
-## Missing-Folder Behavior (revised — no command hijack)
+## Missing-Folder Behavior (revised — click opens relocate)
 
-When the existence cache reports `"missing"` for a row's path:
+When the existence cache reports `missing` (fresh or stale) for a row's path:
 
-1. **Render** — `TreeItem.description = "(missing)"`, `TreeItem.iconPath = new ThemeIcon("folder", new ThemeColor("disabledForeground"))`. The contextValue token `projectRoot.missing` is set.
-2. **Tooltip** — `"This folder is missing on disk. Right-click to relocate or remove."`
-3. **`TreeItem.command`** — *not set*. Clicking the row does nothing. (No toast hijack. The right-click context menu is the affordance.)
-4. **Right-click menu** — offers `Locate Folder...` (group `missing@1`) and `Remove from Favorites` (group `missing@2`).
+1. **Render** — `TreeItem.description = "(missing)"`, `TreeItem.iconPath = new ThemeIcon("folder", new ThemeColor("disabledForeground"))`, `contextValue = "favoriteProject.missing"` (or `recentProject.missing` for a favorited+missing Recent row).
+2. **Tooltip** — `"This folder is missing on disk. Click or press Enter to relocate; right-click for more options."`
+3. **`TreeItem.command`** — `{ command: "claudeConductor.openMissingFavoriteRelocator", arguments: [path], title: "Relocate Folder" }`. **Click and Enter both open the relocate dialog.** This is the keyboard-only path the inquisitor demanded.
+4. **Right-click menu** — offers `Locate Folder...` (group `inline@1` — shows on hover too as a button) and `Remove from Favorites` (group `missing@2`).
+5. **Worktree children** — a missing favorite's grouping yields zero worktree children (worktrees aren't in storage). Missing rows render as leaves.
 
-**Worktree children of a missing favorite:** the parent's missing render does not change expansion behavior; users can still expand the group, but children come from `groupByProjectRoot` over the favorited-paths list, which means missing parents have zero worktree children (since worktrees aren't in `globalState["claudeConductor.favorites"]`). Net effect: missing rows are leaf-rendered.
+**Keyboard-only journey from "I see missing" to "relocated":**
+- Tab/arrow to the Favorites view → arrow-down to the missing row → press Enter → relocate dialog opens → arrow-keys + Enter through dialog → relocated.
 
 ## Data Flow
 
 ```
 User clicks star (Recent Projects, unfavorited row)
   └─> command: claudeConductor.addFavorite(path)
-        └─> store.add(path)                       // sync: mutate entries[] + keyIndex
-              ├─> emit onDidChange                 // sync, immediate
-              │   ├─> RecentProjectsProvider fires onDidChangeTreeData → re-render icons
-              │   └─> FavoritesProvider fires onDidChangeTreeData → re-render list
-              └─> memento.update(...)              // async, background
-                  └─> .catch(handlePersistError)   // rollback + toast on failure
+        └─> store.add(path)
+              └─> enqueueMutation(snapshot, applyAdd)
+                    ├─> entries.push(...); rebuildIndex(); _onDidChange.fire({kind: "single", path})
+                    │     ├─> RecentProjectsProvider fires onDidChangeTreeData(theElement)
+                    │     └─> FavoritesProvider fires onDidChangeTreeData(undefined) (new row appears)
+                    └─> persistChain.then(() => memento.update(...))
+                          └─> .catch(err) → entries = snapshot; rebuild; fire; toast
 ```
 
 ```
-User right-clicks a missing favorite → "Locate Folder..."
+User right-clicks a missing favorite → "Locate Folder..." (or clicks the row, or presses Enter)
   └─> command: claudeConductor.locateFavorite(oldPath)
-        └─> showOpenDialog → newPath
+        └─> showOpenDialog → newPath?
               ├─ undefined → no-op
-              ├─ worktree path → reject with toast
-              ├─ canonical(newPath) === canonical(oldPath) → update entry.path in place
-              ├─ canonical(newPath) matches another entry → drop old entry, toast
-              └─ otherwise → entry.path = newPath, preserve id
-        └─> store.relocate(...) → onDidChange → re-render
+              ├─ isWorktreePath(newPath) → reject + toast
+              ├─ canonicalKey(newPath) === canonicalKey(oldPath) → toast "same path" + no-op
+              ├─ canonicalKey(newPath) matches another entry → drop old, evict cache, toast "already favorited"
+              └─ otherwise → entry.path = newPath; evict oldPath from cache
+        └─> store.relocate(...) → enqueueMutation → persist
+```
+
+```
+launchSession on a UNC favorite fails
+  └─> caller catches error
+        └─> existenceCache.markMissing(path)
+              └─> _onDidChange.fire({kind: "single", path})
+                    └─> Both providers re-render that one row as (missing)
 ```
 
 ## Error Handling
 
 | Failure | Treatment |
 |---|---|
-| `globalState.update` rejection | Log to `console.error`. Toast `"Couldn't save Favorites — please try again."` Roll back the in-memory mutation. |
+| `globalState.update` rejection | Roll back in-memory state to the mutation's pre-snapshot. Toast `"Couldn't save Favorites — please try again."` Subsequent in-flight mutations chained behind this one are also rolled back (serialized-persist contract). |
 | `showOpenDialog` returns `undefined` | No-op. Missing entry stays. |
-| `addFavorite` called with a path already favorited (canonical match) | Silent no-op. |
-| `addFavorite` called with a `.worktrees/<branch>` path | Reject with toast `"Favorite the project root, not a worktree."` Storage unchanged. |
-| `addFavorite` called when at cap (25) | Reject with toast `"Favorites cap reached (25). Remove an entry first."` |
-| `removeFavorite` called with a path not in storage | Silent no-op. |
-| `locateFavorite` chosen path equals the original missing path (canonical match) | Update path in place — covers case/separator tweaks where user "fixes" the casing. No toast. |
-| `locateFavorite` chosen path is a worktree | Reject as `addFavorite` does. |
-| Background stat throws (EACCES, etc.) | Cache as `missing`; the render falls through to the missing-row treatment. Logged once per path per session at console.warn. |
-| Stat times out (>500ms) | Cache as `unknown`; rendered as optimistic-present. Re-checked on next refresh cycle. |
+| `addFavorite` called with a path already favorited | Silent no-op. |
+| `addFavorite` called with a worktree path | Reject with toast `"Favorite the project root, not a worktree."` |
+| `addFavorite` called when `entries.length >= 25` | Reject with toast `"Favorites cap reached (25). Remove an entry first."` |
+| Render path encounters `entries.length > 25` (storage drift) | Truncate display to first 25 entries (sorted alphabetically). `console.warn` once per session. Subsequent `addFavorite` calls continue to reject at the cap. |
+| `removeFavorite` called with absent path | Silent no-op. |
+| `locateFavorite` chosen path equals the old path (canonical) | Toast `"That's the same path. Choose a different folder."` No mutation. |
+| `locateFavorite` chosen path is a worktree | Reject with toast (same as `addFavorite`). |
+| Background stat throws (EACCES, etc.) | Cache as `missing`. Logged once per path per session. |
+| Stat times out (>500ms) | No cache entry written; `peek` returns `unknown` next time; render as optimistic-present; re-checked on next refresh cycle. |
+| `launchSession` fails on a favorite | `existenceCache.markMissing(path)`. Row dims on next render. |
+| Read encounters unknown storage version (`version > 2`) | Toast warning. Render entries best-effort if `entries` is an array. Block writes until reset (skipping mutations with a different toast). |
 
-## Testing (behavior-first, not implementation-first)
+## Testing (behavior-first)
 
-New file: `test/favoritesStore.test.ts` — store unit tests.
-New file: `test/favoritesProvider.test.ts` — provider rendering tests.
-New file: `test/packageJsonContextKeys.test.ts` — package.json drift detector.
-Additions to `test/treeView.test.ts` — cross-panel star coupling, multi-token contextValue.
+New files:
+- `test/favoritesStore.test.ts`
+- `test/favoritesProvider.test.ts`
+- `test/packageJsonContextKeys.test.ts`
+- `test/pathExistenceCache.test.ts`
+
+Additions to:
+- `test/treeView.test.ts`
 
 ### `favoritesStore.test.ts`
 
 - `isFavorited` returns true/false synchronously after add/remove.
 - Canonical-key dedup: `C:\Foo` and `c:/foo/` produce the same key; second add is a no-op.
-- `add` rejects worktree paths.
+- `add` rejects worktree paths via `isWorktreePath()` (uses real predicate, no mock).
 - `add` rejects past 25-entry cap.
-- `relocate` preserves `id`; in-place update for canonical-equal new path.
-- `relocate` to a path already favorited drops the old entry; emits one `onDidChange`.
-- Read-side migration: `string[]` storage value upgrades to `FavoritesEntry[]` on first read.
-- `globalState.update` rejection rolls back in-memory state and re-emits.
+- `relocate` to canonical-equal path emits the "same path" toast.
+- `relocate` to a path already favorited drops the old entry; emits `{kind: "broad"}`.
+- v1 `string[]` storage value is read correctly without triggering a write (deferred-migration semantics).
+- First mutation after v1 read writes the `version: 2` envelope.
+- Future-version envelope (`version: 99`) toasts a warning and renders entries best-effort.
+- **Persist failure rollback:** mock `memento.update` to reject once. Add A. Then add B (chains behind). Assert: both rollbacks fire; final `entries` is empty; `onDidChange` fired three times (one for A applied, one for B applied, one for the rollback).
+- **Serialized persist:** mock `memento.update` to delay 100ms. Fire 5 mutations rapid-fire. Assert: only one update is in flight at a time (verified via per-call counters); all 5 land in storage in order.
 
 ### `favoritesProvider.test.ts`
 
-- **Empty state.** Provider returns `[]` when store has no entries. Tree shows VS Code's default empty-state placeholder.
-- **Single favorite, no worktrees.** Tree contains exactly one row; description is `""` (not `(missing)`); icon is the standard folder icon.
-- **Single favorite with worktrees.** Group renders top + N worktree children; children's contextValue does NOT contain `projectRoot.favorited`.
-- **Alphabetical ordering.** Adding `vscode-claude-conductor` then `claude-personal-configs` then `azure-skills`: tree renders `azure-skills`, `claude-personal-configs`, `vscode-claude-conductor`. Same-basename pair tie-broken by full path.
-- **Missing folder render** (behavior-first). Mock existence cache to return `"missing"` for path X. Assert: tree row's `description === "(missing)"`, icon is the dimmed ThemeIcon, contextValue contains `projectRoot.missing`, **and `command` is `undefined`** (no click action). This is the test the inquisitor demanded — it would fail if rendering returns an empty array for missing rows.
-- **Click-on-missing has no toast.** Mock `showInformationMessage`; assert it is *not* called when a missing row's `TreeItem.command` would have fired (which it shouldn't because `command` is undefined). Documents the behavior change from v1.
-- **Locate-folder dedup.** Setup: favorites contains entries A and B (B is missing). Trigger `locateFavorite(B.path)` → dialog returns A.path. Assert: tree's getChildren returns exactly one row whose path is A.path. Toast was shown.
-- **`addFavorite` past cap toasts and does not mutate.** Add 25 entries. Try the 26th. Assert: tree still shows 25 rows. Toast invoked.
-- **Refresh-only-on-decoration-change.** Spy on `getAllFolders()`. Toggle a favorite via store. Assert `getAllFolders` was called *zero* times. (RecentProjectsProvider's data-axis refresh is unaffected.)
+- Empty state.
+- Single favorite, no worktrees.
+- Single favorite with worktrees.
+- Alphabetical ordering with same-basename tiebreak.
+- **Missing folder render** (behavior-first): mock cache `peek` returns `{kind: "missing", stale: false}`. Assert: `description === "(missing)"`, dimmed icon, `contextValue === "favoriteProject.missing"`, `command.command === "claudeConductor.openMissingFavoriteRelocator"`, `command.arguments === [path]`.
+- **Stale-missing render**: mock cache returns `{kind: "missing", stale: true}`. Assert: same render as fresh-missing (no flicker).
+- **Optimistic-present on UNC**: mock cache returns `{kind: "unknown"}` for UNC path. Assert: rendered as present (no `(missing)` decoration).
+- **Click-on-missing fires relocator command**: mock `commands.executeCommand`; assert that triggering the row's `TreeItem.command` invokes `claudeConductor.openMissingFavoriteRelocator` with the path.
+- **Locate-folder dedup**: setup A and B (B is missing). Trigger `locateFavorite(B.path)` → dialog returns A.path. Assert: tree's getChildren returns exactly one row (A); toast `"already in your Favorites"` invoked.
+- **Locate same-path toast**: dialog returns the same path. Assert: toast `"That's the same path"` invoked; tree unchanged.
+- **`addFavorite` past cap toasts and does not mutate.**
+- **Render-path cap enforcement**: directly write 30 entries to `globalState`; instantiate provider. Assert: tree renders only first 25 (alphabetical); `console.warn` invoked once.
+- **Refresh-only-on-decoration-change**: spy on `getAllFolders()`. Toggle a favorite via store. Assert: `getAllFolders` called *zero* times.
+
+### `pathExistenceCache.test.ts`
+
+- `peek` returns `unknown` initially.
+- `peek` returns `exists` after fresh stat; `unknown` after TTL expiry on previously-exists.
+- `peek` returns `{missing, stale: false}` after fresh stat; `{missing, stale: true}` after TTL expiry — never returns `unknown` for stale-missing (regression guard against v2 flicker).
+- `markMissing` immediately flips state without I/O.
+- `evict` removes the entry; subsequent `peek` returns `unknown`.
+- `refresh` skips UNC paths (`\\server\share\foo`); they stay `unknown`.
+- Stat with simulated 1s delay times out at 500ms; entry stays `unknown`.
 
 ### `packageJsonContextKeys.test.ts`
 
-- Parses `package.json`, walks `menus.view/item/context`, extracts every `viewItem ==` and `viewItem =~` literal/regex.
-- Asserts every literal token (e.g., `projectRoot.favorited`, `projectRoot.missing`, `recentProject`, `worktreeChild`) appears as a value in `VIEW_ITEM` exported from `src/treeView.ts`.
-- This is the drift detector. If a future PR changes the constant or the JSON without updating both, this test fails.
+The drift detector. Asserts a **bijection** between `package.json` `viewItem` references and `VIEW_ITEM` constants.
+
+- Parse `package.json`; walk every `view/item/context` clause; extract every `viewItem == "X"` literal AND every `viewItem =~ /pattern/` regex.
+- For each literal: assert it is a value in `VIEW_ITEM`.
+- For each regex: assert at least one `VIEW_ITEM` value matches it.
+- For each `VIEW_ITEM` value: assert it is referenced by at least one menu clause (catches orphaned constants).
+- For each `\b`-anchored regex: assert it does not match a sibling token (e.g., `^recentProject\b` matches `recentProject.favorited` but not `recentProjectFoo`).
 
 ### `treeView.test.ts` additions
 
-- **Star icon coupling.** Add path X via store. Render Recent Projects row for X — inline action shows `$(star-full)` and contextValue contains `projectRoot.favorited`. Remove via store. Re-render — row shows `$(star-empty)` and contextValue contains `projectRoot.unfavorited`. Existing `recentProject` token is *still* in the contextValue throughout.
-- **`onDidChangeSessions` doesn't lose star state mid-toggle.** Setup: store has X favorited. Trigger `sessionManager._onDidChangeSessions.fire()` (full data refresh). Assert: rendered row for X still shows `projectRoot.favorited` (the live store read inside `getTreeItem` is the regression guard against the v1 race).
+- **Star icon coupling.** Add path X via store. Render Recent Projects row for X — inline action shows `$(star-full)` and `contextValue === "recentProject.favorited"`. Remove via store. Re-render — `$(star-empty)` and `recentProject.unfavorited`.
+- **`onDidChangeSessions` doesn't lose star state mid-toggle.** Setup: store has X favorited. Trigger a full data refresh. Assert: rendered row for X still shows `recentProject.favorited` (regression guard against the v1 race).
+- **Existing `recentProject` clause migration**: assert that the existing inline action ("open recent project") still fires when the user clicks an unfavorited Recent Projects row, after the contextValue has been migrated to `recentProject.unfavorited`. (The package.json clause is now `=~ /^recentProject\b/`; this test verifies it still matches.)
 
 ## File Touch List
 
 | File | Change |
 |---|---|
-| `package.json` | Add view contribution, three commands, six menu clauses (three inline + three non-inline). Bump version. |
-| `src/favoritesStore.ts` | **New.** `FavoritesStore` service, `canonicalKey`, `readAndMigrate`. Zero VS Code imports except `Memento` + `EventEmitter`. |
-| `src/pathExistenceCache.ts` | **New.** Async stat + TTL + UNC skip. Zero VS Code imports. |
-| `src/treeView.ts` | New `FavoritesProvider`. Add `VIEW_ITEM` constant. Update `RecentProjectsProvider` to consult `FavoritesStore.isFavorited` inside `getTreeItem` and emit multi-token contextValue. No changes to existing data-fetch path. |
-| `src/extension.ts` | Construct `FavoritesStore` and `PathExistenceCache` at activation. Register `FavoritesProvider`. Register the three new commands. Wire `store.onDidChange` to fire both providers' `_onDidChangeTreeData`. |
-| `src/projectGrouping.ts` | **No changes.** Reused as-is. |
-| `test/favoritesStore.test.ts` | **New.** Per test plan above. |
-| `test/favoritesProvider.test.ts` | **New.** Per test plan above. |
-| `test/packageJsonContextKeys.test.ts` | **New.** Drift detector. |
-| `test/treeView.test.ts` | Add cross-panel star coupling and race-regression tests. |
-| `README.md` | Document the Favorites section under "Activity Bar Sidebar". Note the 25-favorite cap. Note UNC paths render optimistic-present. |
-| `CHANGELOG.md` | New entry under the next version. |
+| `package.json` | Add view contribution (3rd view), 4 commands (incl. internal relocator), 7 menu clauses (inline + context). **Migrate existing `recentProject == ` clause to `=~ /^recentProject\b/`.** Bump version. |
+| `src/favoritesStore.ts` | **New.** `FavoritesStore` service, `canonicalKey`, `readWithoutMigrating`, deferred migration on first mutation, serialized persist queue. |
+| `src/pathExistenceCache.ts` | **New.** Async stat, TTL, UNC skip, `markMissing`/`evict`. |
+| `src/projectGrouping.ts` | **Add export:** `isWorktreePath(p): boolean`. No other changes. |
+| `src/treeView.ts` | New `FavoritesProvider`. Add `VIEW_ITEM` constant. Update `RecentProjectsProvider` `contextValue` to `recentProject.{favorited,unfavorited,missing}`. Wire missing-row `command` to `claudeConductor.openMissingFavoriteRelocator`. |
+| `src/extension.ts` | Construct store + cache at activation. Register `FavoritesProvider`. Register 4 commands. Wire `markMissing` callback into `launchSession` failure path. |
+| `src/sessionManager.ts` | (or wherever `launchSession` lives) — call `existenceCache.markMissing(path)` on launch failure for paths that come from favorites/recents. |
+| `test/favoritesStore.test.ts` | **New.** |
+| `test/favoritesProvider.test.ts` | **New.** |
+| `test/pathExistenceCache.test.ts` | **New.** |
+| `test/packageJsonContextKeys.test.ts` | **New** drift detector with bidirectional bijection assertions. |
+| `test/treeView.test.ts` | Additions per test plan. |
+| `README.md` | Document Favorites section. Note 25-cap, click-to-relocate, UNC behavior (optimistic-present until launch failure). |
+| `CHANGELOG.md` | New entry. |
 
 ## Open Questions Resolved During Brainstorm
 
 | Question | Resolution |
 |---|---|
-| Parallel vs mutually exclusive lists? | **Parallel.** Favorites is a curated overlay; Recent stays untouched. |
-| Star button placement? | **Inline-on-hover + right-click context menu** (both interaction paths). |
-| Ordering scheme? | **Alphabetical** by folder basename, full path tiebreak. Drag-to-reorder deferred. Soft cap at 25. |
-| Per-worktree favorites? | **No.** Project-only; worktrees come along via grouping. Both `addFavorite` and `locateFavorite` reject worktree paths. |
-| Missing-folder behavior? | **Dim + `(missing)` suffix + tooltip; right-click to relocate or remove.** No click intercept. |
+| Parallel vs mutually exclusive lists? | **Parallel.** |
+| Star button placement? | **Inline-on-hover + right-click context menu.** |
+| Ordering scheme? | **Alphabetical** by basename, full path tiebreak. Drag-to-reorder deferred. |
+| Per-worktree favorites? | **No.** Project-only, enforced via shared `isWorktreePath()`. |
+| Missing-folder behavior? | **Dim + `(missing)` + click opens relocate dialog directly. Tooltip + right-click for explicit options.** |
 
 ## Risks & Mitigations
 
-- **Risk:** `viewItem` constants drift between TS and `package.json`.
-  **Mitigation:** `packageJsonContextKeys.test.ts` parses package.json menu clauses and asserts every literal token exists in the `VIEW_ITEM` exported constant. Test fails if either side changes without the other.
-- **Risk:** Symlink/junction-resolved paths produce duplicate entries (two distinct strings → same directory).
-  **Mitigation:** Acknowledged tradeoff. v1 uses string-canonical key only (no `realpathSync`), because `realpathSync` on missing paths throws and the relocate flow needs to handle missing paths uniformly. Document in README: "Favorites tracks paths as you typed them — `C:\Code\Foo` and a junction pointing to it are tracked separately."
-- **Risk:** A user opens a workspace where most favorites are unreachable; panel shows mostly `(missing)` rows.
-  **Mitigation:** Acknowledged as v1 cost (see Non-Goals). Dimmed visual treatment is intentionally low-noise. v2 might add per-workspace filtering.
-- **Risk:** Background stat refresh storms on rapid `onDidChangeSessions` events.
-  **Mitigation:** 30s TTL means stat runs at most twice per minute per path even with refresh churn. UNC paths skipped entirely.
-- **Risk:** `globalState.update` rejection mid-mutation leaves in-memory and persisted state divergent.
-  **Mitigation:** `.catch(handlePersistError)` rolls back the in-memory mutation and fires `onDidChange` again to re-render the rolled-back state. User sees the toggle "snap back" with an error toast.
-- **Risk:** Path containing only-case-different favorites on case-insensitive filesystems.
-  **Mitigation:** Canonical key case-folds. `C:\Foo` and `c:/foo` collapse to one entry.
-- **Risk:** User sets up Favorites on machine A; on machine B the paths don't exist.
-  **Mitigation:** `globalState` is per-machine; this is by design (see Non-Goals — Settings Sync). The `id` field future-proofs the eventual sync story.
+- **Risk:** A v1 build encountering v2's envelope `{version, entries}`.
+  **Mitigation:** Object-shape envelope means v1's `Array.isArray` check fails → empty-state branch. No crash, no data corruption. User loses pinned state on downgrade (acceptable for manual curation).
+- **Risk:** `viewItem` drift between TS and `package.json` (either direction).
+  **Mitigation:** `packageJsonContextKeys.test.ts` enforces bidirectional bijection — JSON references must exist in `VIEW_ITEM`, AND `VIEW_ITEM` values must be referenced. Catches typos in either file.
+- **Risk:** Symlink/junction → duplicate entries.
+  **Mitigation:** Documented tradeoff (Non-Goals). README notes paths are tracked as typed.
+- **Risk:** Unreachable workspace context (most favorites missing in current workspace).
+  **Mitigation:** Acknowledged v1 cost (Non-Goals). Dimmed treatment is low-noise.
+- **Risk:** Background stat refresh storms.
+  **Mitigation:** 30s TTL caps re-stat frequency; UNC paths skipped; targeted invalidation (single-path `onDidChange`) avoids full re-renders.
+- **Risk:** Persist queue starves under rapid mutations.
+  **Mitigation:** Serialized queue's worst case is one persist per mutation, 25-entry cap means bounded list size, and persist latency is dominated by VS Code's `globalState.update` (typically <10ms locally). Acceptable.
+- **Risk:** UNC path "looks present" until the user tries to launch it.
+  **Mitigation:** `markMissing` is wired into the launch-failure path so the cache learns from the launch attempt; subsequent renders dim the row.
+- **Risk:** Relocate dialog accepts a worktree path the existence-only check would have allowed.
+  **Mitigation:** Both `addFavorite` and `locateFavorite` route through the same `isWorktreePath()` predicate; tested with shared fixtures.
+- **Risk:** Multi-window simultaneous mutation overwriting each other.
+  **Mitigation:** Last-writer-wins on the entries array — same semantics as any concurrent storage update. Because there's no per-entry identifier, no identity is lost; only the merged set differs from each window's view. Acceptable for v1; full sync resolution is deferred.
