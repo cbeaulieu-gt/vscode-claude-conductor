@@ -14,6 +14,7 @@
 
 import * as vscode from "vscode";
 import * as fs from "fs";
+import { canonicalKey } from "./pathCanonical";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -43,11 +44,6 @@ const STAT_TIMEOUT_MS = 500;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Normalize a path to a canonical cache key: forward slashes, lowercase, no trailing slash. */
-function canonicalKey(p: string): string {
-  return p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-}
 
 /** Returns true for UNC paths (\\server\share or //server/share). */
 function isLikelyNetworkPath(p: string): boolean {

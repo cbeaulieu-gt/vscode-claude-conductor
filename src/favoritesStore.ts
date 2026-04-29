@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { isWorktreePath } from "./projectGrouping";
+import { canonicalKey } from "./pathCanonical";
 
 export interface FavoritesEntry {
   path: string;
@@ -20,10 +21,6 @@ export const MAX_FAVORITES = 25;
 export interface MutationResult {
   ok: boolean;
   reason?: string;
-}
-
-function canonicalKey(p: string): string {
-  return p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
 /** Pure read; no write side effects. v1 string[] is converted in-memory only. */
