@@ -133,7 +133,10 @@ export class PathExistenceCache {
     this._onDidChange.fire({ kind: "single", path: p });
   }
 
-  /** Remove a path from the cache and notify listeners if the path was present. */
+  /**
+   * Remove a path from the cache. Only fires `onDidChange` if the path was
+   * actually present (no spurious events for paths that were never tracked).
+   */
   evict(p: string): void {
     if (this.cache.delete(canonicalKey(p))) {
       this._onDidChange.fire({ kind: "single", path: p });
