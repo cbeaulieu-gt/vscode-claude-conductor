@@ -161,7 +161,12 @@
         },
         {
           "command": "claudeConductor.openSession",
-          "when": "viewItem =~ /^projectRoot\\./",
+          "when": "viewItem =~ /^projectRoot\\.(favorited|unfavorited|missing)$/",
+          "group": "inline"
+        },
+        {
+          "command": "claudeConductor.openSession",
+          "when": "viewItem == worktreeChild",
           "group": "inline"
         },
         {
