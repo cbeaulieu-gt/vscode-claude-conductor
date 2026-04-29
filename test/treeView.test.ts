@@ -13,8 +13,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ActiveSession } from "../src/sessionManager";
 import type { FolderEntry } from "../src/folderSource";
-import type { FavoritesStore } from "../src/favoritesStore";
-import type { PathExistenceCache } from "../src/pathExistenceCache";
+import type { FavoritesStore as FavoritesStoreType } from "../src/favoritesStore";
+import { FavoritesStore } from "../src/favoritesStore";
+import type { PathExistenceCache as PathExistenceCacheType } from "../src/pathExistenceCache";
+import { PathExistenceCache } from "../src/pathExistenceCache";
 
 // ---------------------------------------------------------------------------
 // Minimal stubs — keep them local so this test file is self-contained.
@@ -67,7 +69,7 @@ function makeSessionManager(sessions: ActiveSession[]) {
 // Minimal FavoritesStore and PathExistenceCache stubs
 // ---------------------------------------------------------------------------
 
-function makeFakeFavoritesStore(): FavoritesStore {
+function makeFakeFavoritesStore(): FavoritesStoreType {
   return {
     isFavorited: () => false,
     list: () => [],
@@ -81,7 +83,7 @@ function makeFakeFavoritesStore(): FavoritesStore {
   } as unknown as FavoritesStore;
 }
 
-function makeFakeExistenceCache(): PathExistenceCache {
+function makeFakeExistenceCache(): PathExistenceCacheType {
   return {
     peek: () => ({ kind: "unknown" } as const),
     markPresent: () => {},
@@ -315,5 +317,74 @@ describe("VIEW_ITEM constants", () => {
     expect(VIEW_ITEM.PROJECT_ROOT_MISSING).toBe("projectRoot.missing");
     expect(VIEW_ITEM.WORKTREE_CHILD).toBe("worktreeChild");
     expect(VIEW_ITEM.ACTIVE_SESSION).toBe("activeSession");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-panel star coupling + race regression
+// ---------------------------------------------------------------------------
+
+describe("Cross-panel star coupling", () => {
+  function makeRealMemento(): import("vscode").Memento {
+    const data: Record<string, unknown> = {};
+    return {
+      keys: () => Object.keys(data),
+      get: <T>(k: string) => data[k] as T | undefined,
+      update: async (k: string, v: unknown) => { data[k] = v; },
+    } as unknown as import("vscode").Memento;
+  }
+
+  it("Recent Projects row reflects favorited state immediately after store.add", async () => {
+    const store = new FavoritesStore(makeRealMemento());
+    const cache = new PathExistenceCache();
+    const sm = makeSessionManager([]);
+
+    vi.mocked(getAllFolders).mockResolvedValue([
+      { folderPath: "C:/proj", name: "proj", parentDir: "C:", source: "recent" as const },
+    ]);
+
+    const provider = new RecentProjectsProvider(sm as never, store, cache);
+
+    // Before add: contextValue should be unfavorited
+    const groupsBefore = await provider.getChildren();
+    const leavesBefore = await provider.getChildren(groupsBefore[0]);
+    expect(leavesBefore[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_UNFAVORITED);
+
+    await store.add("C:/proj");
+
+    // After add: contextValue is favorited
+    const groupsAfter = await provider.getChildren();
+    const leavesAfter = await provider.getChildren(groupsAfter[0]);
+    expect(leavesAfter[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_FAVORITED);
+  });
+
+  it("regression: leaf items reflect live store state, not a stale snapshot", async () => {
+    // Simulates the v1-blocker race: provider's getChildren(group) is called
+    // AFTER getAllFolders() resolved, so the leaf-item construction reads the
+    // store synchronously at construction time. If a mutation lands between
+    // getAllFolders() resolving and getChildren(group) running, the new state
+    // must be reflected.
+    const store = new FavoritesStore(makeRealMemento());
+    const cache = new PathExistenceCache();
+    const sm = makeSessionManager([]);
+
+    vi.mocked(getAllFolders).mockResolvedValue([
+      { folderPath: "C:/proj", name: "proj", parentDir: "C:", source: "recent" as const },
+    ]);
+
+    const provider = new RecentProjectsProvider(sm as never, store, cache);
+
+    // Step 1: fetch top-level groups (this is where getAllFolders is awaited)
+    const groups = await provider.getChildren();
+    expect(groups).toHaveLength(1);
+
+    // Step 2: mutate the store BEFORE asking for the group's leaves.
+    // The leaf construction is synchronous and reads `store.isFavorited()`
+    // at that moment.
+    await store.add("C:/proj");
+
+    // Step 3: now ask for leaves. They MUST reflect the latest store state.
+    const leaves = await provider.getChildren(groups[0]);
+    expect(leaves[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_FAVORITED);
   });
 });
