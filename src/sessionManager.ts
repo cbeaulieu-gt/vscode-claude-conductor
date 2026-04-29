@@ -107,7 +107,7 @@ export class SessionManager implements vscode.Disposable {
     // timeouts for \\server\share paths, making the guard counterproductive.
     if (!isLikelyNetworkPath(normalized)) {
       if (!fs.existsSync(normalized)) {
-        log(`[launch] missing cwd: ${normalized}`);
+        log(`[launch] skipping — cwd does not exist: ${normalized}`);
         return {
           ok: false,
           reason: "missing",
