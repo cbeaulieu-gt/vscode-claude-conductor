@@ -16,10 +16,21 @@ Running Claude Code against several projects at once is painful in a plain termi
 
 ### Activity Bar Sidebar
 
-A dedicated "Claude Conductor" panel with two sections:
+A dedicated "Claude Conductor" panel with three sections:
 
 - **Active Sessions** — currently running Claude terminals. Sessions are grouped by project root; click a project row to expand it and see its sessions. Click a session leaf to focus it. A green terminal icon means the session is working; an orange bell means it's waiting for your input.
+- **Favorites** — a curated list of project roots you've pinned for quick access. Sits between Active Sessions and Recent Projects.
 - **Recent Projects** — your VS Code recently opened folders plus any configured extras, grouped by project root. Click a project row to expand it and see its worktrees. Click a folder leaf to launch a new session.
+
+### Favorites
+
+A curated list of project roots you've pinned for quick access. Sits between Active Sessions and Recent Projects.
+
+- **Add a favorite:** hover a project row in Recent Projects or right-click and choose **Add to Favorites**. The row shows a filled star icon when favorited.
+- **Remove a favorite:** hover a favorited row and click the filled star, or right-click → **Remove from Favorites**.
+- **Relocate a favorite:** if a favorited folder is missing on disk, the row dims and shows `(missing)`. Click the row, press Enter, or right-click → **Locate Folder...** to point the favorite at the folder's new location.
+- **Capacity:** soft cap of 25 favorites. Adding a 26th is rejected with a toast. If storage drift produces more than 25 entries, the panel shows a banner above the tree and renders all entries (no silent truncation).
+- **Persistence:** per-machine via VS Code's `globalState`. Favorites do not sync between machines (intentional — see Known Limits).
 
 Both panels render as a **two-level tree**: project roots are collapsed by default (showing a child count), with their `.worktrees/<branch>` subdirectories nested underneath. When a worktree's parent project root is not present in Recent Projects, the group row is shown with a dimmed folder icon and a "(not in recents)" label so you can tell at a glance that the root itself isn't tracked.
 
@@ -120,6 +131,12 @@ To remove the hooks at any time: run `Claude Conductor: Remove Notification Hook
 - Session tracking only works within a single VS Code window (sessions in other windows aren't visible in the sidebar)
 - The idle notification fires after Claude Code's built-in ~60-second idle threshold — not tunable from the extension
 - VS Code terminal tabs cannot change color or flash after creation, so "attention" is communicated via sidebar bell icons and notifications rather than tab-level indicators
+
+### Known Limits — Favorites
+
+- **Favorites paths are tracked as you typed them.** Two distinct path strings that resolve to the same folder via symlinks or junctions produce duplicate entries.
+- **UNC shares (`\\server\share`):** these render as present in the panel until you actually launch a session. If the share is offline, the launch will fail and the row will dim afterward. The next successful launch flips it back to present.
+- **Multi-window writes:** if you mutate Favorites in two VS Code windows simultaneously, the last write wins. The list is bounded (25 entries) and mutation rate is low, so collisions are unlikely in practice. Settings Sync is intentionally not enabled.
 
 ## Contributing / Development
 

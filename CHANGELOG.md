@@ -6,6 +6,14 @@ All notable changes to the Claude Conductor extension are documented here.
 
 ### Added
 - **`claudeConductor.debugLogging` setting** — when enabled, emits verbose structured `key=value` diagnostic lines to the "Claude Conductor" output channel for every session-lifecycle event: terminal tracking (`[track]`, `[track:pid]`), close-detection tier outcomes (`[close]`, `[close:tier1]`, `[close:tier2]`, `[close:tier3]`, `[close:tier3:no-pid]`), PID index mutations (`[pid:delete]`), and reconcile poll results (`[reconcile]`, `[reconcile:evict]`, `[reconcile:clean]`). Default off; intended for diagnosing missed editor-tab close events (refs #68 phase A).
+- **Favorites sidebar section** ([#75](https://github.com/cbeaulieu-gt/vscode-claude-conductor/issues/75))
+  - New top-level tree view between Active Sessions and Recent Projects
+  - Star toggle on Recent Projects rows (hover or right-click)
+  - Missing-folder rows dim with `(missing)` and click-to-relocate via `showOpenDialog`
+  - 25-favorite soft cap; over-cap banner; per-machine `globalState` persistence
+
+### Changed
+- `launchSession` now returns a `LaunchResult` (`ok: true | false` with reason) instead of `void`. Internal API; existing extension behavior unchanged.
 
 ### Fixed
 - **Open in New Window no longer silently no-ops on the current window** — when the command is invoked on a session whose folder is already the active workspace, VS Code would receive the `vscode://` URI, route it back to the same window, and the user would perceive no change. The command now detects this case via a case-insensitive folder comparison, shows a dismissible info toast ("You're already in this project's window — focused the session instead."), and focuses the session tab instead of firing the URI. Fixes #66.
