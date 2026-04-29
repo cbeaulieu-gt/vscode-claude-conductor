@@ -46,6 +46,21 @@ describe("FavoritesProvider", () => {
     expect(top.map(n => n.label)).toEqual(["aaa", "mmm", "zzz"]);
   });
 
+  it("alphabetical sort tiebreak: identical basenames sort by full path", async () => {
+    const store = new FavoritesStore(makeMemento());
+    await store.add("D:/zebra/aaa");
+    await store.add("C:/alpha/aaa");
+    const cache = new PathExistenceCache();
+    const provider = new FavoritesProvider(store, cache);
+
+    const top = await provider.getChildren();
+    expect(top).toHaveLength(2);
+    // Both rows have label "aaa"; their order is determined by the full-path tiebreak.
+    // Lowercased full-path comparison: "c:/alpha/aaa" < "d:/zebra/aaa".
+    expect((top[0] as { folderPath: string }).folderPath).toBe("C:/alpha/aaa");
+    expect((top[1] as { folderPath: string }).folderPath).toBe("D:/zebra/aaa");
+  });
+
   it("renders missing folder with (missing) description, dimmed icon, and locate command", async () => {
     const store = new FavoritesStore(makeMemento());
     await store.add("C:/missing");
@@ -104,7 +119,7 @@ describe("FavoritesProvider", () => {
 
     const top = await provider.getChildren();
     expect(top).toHaveLength(30);
-    expect(provider.getOverCapBanner()).toMatch(/over the 25 cap/i);
+    expect(provider.getOverCapBanner()).toMatch(/over the 25 cap.*consider removing/i);
   });
 
   it("addFavorite past cap: store rejects, provider state unchanged", async () => {

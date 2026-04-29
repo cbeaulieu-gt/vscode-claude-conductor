@@ -266,26 +266,14 @@ export class RecentProjectsProvider
 class FavoriteLeafItem extends vscode.TreeItem {
   readonly folderPath: string;
 
-  constructor(
-    folderPath: string,
-    isWorktreeChild: boolean,
-    state: { missing: boolean }
-  ) {
+  constructor(folderPath: string, state: { missing: boolean }) {
     super(path.basename(folderPath) || folderPath, vscode.TreeItemCollapsibleState.None);
     this.folderPath = folderPath;
     this.tooltip = state.missing
       ? "This folder is missing on disk. Click or press Enter to relocate; right-click for more options."
       : folderPath;
 
-    if (isWorktreeChild) {
-      this.contextValue = VIEW_ITEM.WORKTREE_CHILD;
-      this.iconPath = new vscode.ThemeIcon("folder");
-      this.command = {
-        command: "claudeConductor.openSession",
-        title: "Launch Session",
-        arguments: [folderPath],
-      };
-    } else if (state.missing) {
+    if (state.missing) {
       this.contextValue = VIEW_ITEM.PROJECT_ROOT_MISSING;
       this.description = "(missing)";
       this.iconPath = new vscode.ThemeIcon(
@@ -343,7 +331,7 @@ export class FavoritesProvider implements vscode.TreeDataProvider<FavoriteTreeNo
       const peek = this.cache.peek(e.path);
       // Treat "unknown" as optimistic-present (e.g. UNC paths never get stat-checked).
       const missing = peek.kind === "missing";
-      return new FavoriteLeafItem(e.path, false, { missing });
+      return new FavoriteLeafItem(e.path, { missing });
     });
   }
 
