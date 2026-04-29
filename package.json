@@ -81,6 +81,23 @@
         "command": "claudeConductor.refreshTreeView",
         "title": "Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "claudeConductor.addFavorite",
+        "title": "Add to Favorites",
+        "category": "Claude Conductor",
+        "icon": "$(star-empty)"
+      },
+      {
+        "command": "claudeConductor.removeFavorite",
+        "title": "Remove from Favorites",
+        "category": "Claude Conductor",
+        "icon": "$(star-full)"
+      },
+      {
+        "command": "claudeConductor.locateFavorite",
+        "title": "Locate Folder...",
+        "category": "Claude Conductor"
       }
     ],
     "viewsContainers": {
@@ -97,6 +114,10 @@
         {
           "id": "claudeConductor.activeSessions",
           "name": "Active Sessions"
+        },
+        {
+          "id": "claudeConductor.favorites",
+          "name": "Favorites"
         },
         {
           "id": "claudeConductor.recentProjects",
@@ -140,8 +161,38 @@
         },
         {
           "command": "claudeConductor.openSession",
-          "when": "viewItem == recentProject",
+          "when": "viewItem =~ /^projectRoot\\./",
           "group": "inline"
+        },
+        {
+          "command": "claudeConductor.addFavorite",
+          "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem == projectRoot.unfavorited",
+          "group": "inline@1"
+        },
+        {
+          "command": "claudeConductor.removeFavorite",
+          "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem == projectRoot.favorited",
+          "group": "inline@1"
+        },
+        {
+          "command": "claudeConductor.locateFavorite",
+          "when": "view == claudeConductor.favorites && viewItem == projectRoot.missing",
+          "group": "inline@1"
+        },
+        {
+          "command": "claudeConductor.removeFavorite",
+          "when": "view == claudeConductor.favorites && viewItem == projectRoot.missing",
+          "group": "missing@2"
+        },
+        {
+          "command": "claudeConductor.addFavorite",
+          "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem == projectRoot.unfavorited",
+          "group": "favorites@1"
+        },
+        {
+          "command": "claudeConductor.removeFavorite",
+          "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem == projectRoot.favorited",
+          "group": "favorites@1"
         }
       ]
     },
