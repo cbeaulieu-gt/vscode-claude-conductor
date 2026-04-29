@@ -3,6 +3,20 @@ import * as path from "path";
 import { SessionManager, ActiveSession } from "./sessionManager";
 import { getAllFolders, FolderEntry } from "./folderSource";
 import { groupByProjectRoot, ProjectGroup } from "./projectGrouping";
+import { FavoritesStore } from "./favoritesStore";
+import { PathExistenceCache } from "./pathExistenceCache";
+
+// ---------------------------------------------------------------------------
+// Shared contextValue tokens
+// ---------------------------------------------------------------------------
+
+export const VIEW_ITEM = {
+  PROJECT_ROOT_FAVORITED:   "projectRoot.favorited",
+  PROJECT_ROOT_UNFAVORITED: "projectRoot.unfavorited",
+  PROJECT_ROOT_MISSING:     "projectRoot.missing",
+  WORKTREE_CHILD:           "worktreeChild",
+  ACTIVE_SESSION:           "activeSession",
+} as const;
 
 // ---------------------------------------------------------------------------
 // Active Sessions — tree items
@@ -15,15 +29,17 @@ import { groupByProjectRoot, ProjectGroup } from "./projectGrouping";
 class ActiveGroupItem extends vscode.TreeItem {
   readonly group: ProjectGroup<ActiveSession>;
 
-  constructor(group: ProjectGroup<ActiveSession>) {
+  constructor(group: ProjectGroup<ActiveSession>, state: { favorited: boolean }) {
     const label = path.basename(group.root);
     super(label, vscode.TreeItemCollapsibleState.Collapsed);
     this.group = group;
 
     const count = group.children.length + (group.top !== null ? 1 : 0);
     this.description = `(${count})`;
-    // Folder icon — no command so click only expands/collapses.
     this.iconPath = new vscode.ThemeIcon("folder");
+    this.contextValue = state.favorited
+      ? VIEW_ITEM.PROJECT_ROOT_FAVORITED
+      : VIEW_ITEM.PROJECT_ROOT_UNFAVORITED;
     this.tooltip = group.root;
   }
 }
@@ -66,8 +82,12 @@ export class ActiveSessionsProvider
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  constructor(private readonly sessionManager: SessionManager) {
+  constructor(
+    private readonly sessionManager: SessionManager,
+    private readonly favoritesStore: FavoritesStore
+  ) {
     sessionManager.onDidChangeSessions(() => this._onDidChangeTreeData.fire());
+    favoritesStore.onDidChange(() => this._onDidChangeTreeData.fire());
   }
 
   getTreeItem(element: ActiveTreeNode): vscode.TreeItem {
@@ -93,7 +113,10 @@ export class ActiveSessionsProvider
     // Top level: return one group row per project root.
     const sessions = this.sessionManager.activeSessions;
     const groups = groupByProjectRoot(sessions, (s) => s.folderPath);
-    return groups.map((g) => new ActiveGroupItem(g));
+    return groups.map((g) => {
+      const fav = this.favoritesStore.isFavorited(g.root);
+      return new ActiveGroupItem(g, { favorited: fav });
+    });
   }
 
   refresh(): void {
@@ -117,7 +140,10 @@ export class ActiveSessionsProvider
 class RecentGroupItem extends vscode.TreeItem {
   readonly group: ProjectGroup<FolderEntry>;
 
-  constructor(group: ProjectGroup<FolderEntry>) {
+  constructor(
+    group: ProjectGroup<FolderEntry>,
+    state: { favorited: boolean; missing: boolean }
+  ) {
     const label = path.basename(group.root);
     super(label, vscode.TreeItemCollapsibleState.Collapsed);
     this.group = group;
@@ -125,15 +151,29 @@ class RecentGroupItem extends vscode.TreeItem {
     const count = group.children.length + (group.top !== null ? 1 : 0);
 
     if (group.isPhantom) {
+      // Phantom roots stay un-favoritable. No contextValue → no star menu.
+      // (We don't conflate "not in recents" with "favorite missing on disk".)
       this.description = `(${count}) (not in recents)`;
-      // Dimmed folder icon — signals that the root itself is not in Recent Projects.
       this.iconPath = new vscode.ThemeIcon(
         "folder",
         new vscode.ThemeColor("disabledForeground")
       );
+    } else if (state.missing && state.favorited) {
+      // Favorite whose root is missing on disk → projectRoot.missing
+      this.description = `(${count}) (missing)`;
+      this.iconPath = new vscode.ThemeIcon(
+        "folder",
+        new vscode.ThemeColor("disabledForeground")
+      );
+      this.contextValue = VIEW_ITEM.PROJECT_ROOT_MISSING;
+    } else if (state.favorited) {
+      this.description = `(${count})`;
+      this.iconPath = new vscode.ThemeIcon("folder");
+      this.contextValue = VIEW_ITEM.PROJECT_ROOT_FAVORITED;
     } else {
       this.description = `(${count})`;
       this.iconPath = new vscode.ThemeIcon("folder");
+      this.contextValue = VIEW_ITEM.PROJECT_ROOT_UNFAVORITED;
     }
 
     this.tooltip = group.root;
@@ -156,7 +196,8 @@ class RecentProjectItem extends vscode.TreeItem {
       : entry.parentDir;
     this.tooltip = `${entry.folderPath} (${entry.source})`;
     this.iconPath = new vscode.ThemeIcon("folder");
-    this.contextValue = "recentProject";
+    this.contextValue = isWorktreeChild ? VIEW_ITEM.WORKTREE_CHILD : undefined;
+
     this.command = {
       command: "claudeConductor.openSession",
       title: "Launch Session",
@@ -170,11 +211,17 @@ type RecentTreeNode = RecentGroupItem | RecentProjectItem;
 export class RecentProjectsProvider
   implements vscode.TreeDataProvider<RecentTreeNode>
 {
-  private readonly _onDidChangeTreeData = new vscode.EventEmitter<void>();
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<RecentTreeNode | undefined | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  constructor(private readonly sessionManager: SessionManager) {
-    sessionManager.onDidChangeSessions(() => this._onDidChangeTreeData.fire());
+  constructor(
+    private readonly sessionManager: SessionManager,
+    private readonly favoritesStore: FavoritesStore,
+    private readonly existenceCache: PathExistenceCache
+  ) {
+    sessionManager.onDidChangeSessions(() => this._onDidChangeTreeData.fire(undefined));
+    favoritesStore.onDidChange(() => this._onDidChangeTreeData.fire(undefined));
+    existenceCache.onDidChange(() => this._onDidChangeTreeData.fire(undefined));
   }
 
   getTreeItem(element: RecentTreeNode): vscode.TreeItem {
@@ -183,7 +230,6 @@ export class RecentProjectsProvider
 
   async getChildren(element?: RecentTreeNode): Promise<RecentTreeNode[]> {
     if (element instanceof RecentGroupItem) {
-      // Return the leaves for this group.
       const { group } = element;
       const leaves: RecentProjectItem[] = [];
       if (group.top !== null) {
@@ -201,10 +247,108 @@ export class RecentProjectsProvider
     // Projects simultaneously.
     const folders = await getAllFolders();
     const groups = groupByProjectRoot(folders, (f) => f.folderPath);
-    return groups.map((g) => new RecentGroupItem(g));
+    return groups.map((g) => {
+      // For phantom groups, state is read but the constructor ignores it.
+      const fav = !g.isPhantom && this.favoritesStore.isFavorited(g.root);
+      const peek = this.existenceCache.peek(g.root);
+      const missing = fav && peek.kind === "missing";
+      return new RecentGroupItem(g, { favorited: fav, missing });
+    });
   }
 
   refresh(): void {
-    this._onDidChangeTreeData.fire();
+    this._onDidChangeTreeData.fire(undefined);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Favorites — tree items
+// ---------------------------------------------------------------------------
+
+/**
+ * A single flat row in the Favorites panel.
+ *
+ * v1: favorites are rendered single-level (no nested worktree children).
+ * Worktree children of favorited project roots appear in Recent Projects only.
+ * Missing entries get a dimmed icon and a click-to-relocate command instead of
+ * the normal open-session command, so the user cannot accidentally launch a
+ * session for a path that no longer exists.
+ */
+class FavoriteLeafItem extends vscode.TreeItem {
+  readonly folderPath: string;
+
+  constructor(folderPath: string, state: { missing: boolean }) {
+    super(path.basename(folderPath) || folderPath, vscode.TreeItemCollapsibleState.None);
+    this.folderPath = folderPath;
+    this.tooltip = state.missing
+      ? "This folder is missing on disk. Click or press Enter to relocate; right-click for more options."
+      : folderPath;
+
+    if (state.missing) {
+      this.contextValue = VIEW_ITEM.PROJECT_ROOT_MISSING;
+      this.description = "(missing)";
+      this.iconPath = new vscode.ThemeIcon(
+        "folder",
+        new vscode.ThemeColor("disabledForeground")
+      );
+      this.command = {
+        command: "claudeConductor.locateFavorite",
+        title: "Relocate Folder",
+        arguments: [folderPath],
+      };
+    } else {
+      this.contextValue = VIEW_ITEM.PROJECT_ROOT_FAVORITED;
+      this.iconPath = new vscode.ThemeIcon("folder");
+      this.command = {
+        command: "claudeConductor.openSession",
+        title: "Launch Session",
+        arguments: [folderPath],
+      };
+    }
+  }
+}
+
+type FavoriteTreeNode = FavoriteLeafItem;  // single-level for now
+
+export class FavoritesProvider implements vscode.TreeDataProvider<FavoriteTreeNode> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<FavoriteTreeNode | undefined | void>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  constructor(
+    private readonly store: FavoritesStore,
+    private readonly cache: PathExistenceCache
+  ) {
+    store.onDidChange(() => this._onDidChangeTreeData.fire(undefined));
+    cache.onDidChange(() => this._onDidChangeTreeData.fire(undefined));
+  }
+
+  getTreeItem(el: FavoriteTreeNode): vscode.TreeItem { return el; }
+
+  async getChildren(_element?: FavoriteTreeNode): Promise<FavoriteTreeNode[]> {
+    // Single-level rendering: each favorite is a flat top-level row.
+    // Worktree children of favorited project roots are NOT nested here in v1
+    // (worktrees aren't stored in favorites). Recent Projects continues to
+    // show the nested view.
+    const entries = [...this.store.list()];
+
+    entries.sort((a, b) => {
+      const aName = path.basename(a.path).toLowerCase();
+      const bName = path.basename(b.path).toLowerCase();
+      if (aName !== bName) return aName.localeCompare(bName);
+      return a.path.toLowerCase().localeCompare(b.path.toLowerCase());
+    });
+
+    return entries.map(e => {
+      const peek = this.cache.peek(e.path);
+      // Treat "unknown" as optimistic-present (e.g. UNC paths never get stat-checked).
+      const missing = peek.kind === "missing";
+      return new FavoriteLeafItem(e.path, { missing });
+    });
+  }
+
+  /** Returns the over-cap banner string when storage drift exists; null otherwise. */
+  getOverCapBanner(): string | null {
+    if (!this.store.isOverCap()) return null;
+    return `Favorites: ${this.store.list().length} entries (over the 25 cap — consider removing some).`;
   }
 }

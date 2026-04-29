@@ -13,6 +13,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ActiveSession } from "../src/sessionManager";
 import type { FolderEntry } from "../src/folderSource";
+import type { FavoritesStore as FavoritesStoreType } from "../src/favoritesStore";
+import { FavoritesStore } from "../src/favoritesStore";
+import type { PathExistenceCache as PathExistenceCacheType } from "../src/pathExistenceCache";
+import { PathExistenceCache } from "../src/pathExistenceCache";
 
 // ---------------------------------------------------------------------------
 // Minimal stubs — keep them local so this test file is self-contained.
@@ -62,6 +66,36 @@ function makeSessionManager(sessions: ActiveSession[]) {
 }
 
 // ---------------------------------------------------------------------------
+// Minimal FavoritesStore and PathExistenceCache stubs
+// ---------------------------------------------------------------------------
+
+function makeFakeFavoritesStore(): FavoritesStoreType {
+  return {
+    isFavorited: () => false,
+    list: () => [],
+    isOverCap: () => false,
+    onDidChange: () => ({ dispose: () => {} }),
+    add: async () => ({ ok: true }),
+    remove: async () => undefined,
+    relocate: async () => ({ ok: true }),
+    waitForIdle: async () => undefined,
+    dispose: () => {},
+  } as unknown as FavoritesStore;
+}
+
+function makeFakeExistenceCache(): PathExistenceCacheType {
+  return {
+    peek: () => ({ kind: "unknown" } as const),
+    markPresent: () => {},
+    markMissing: () => {},
+    evict: () => {},
+    refresh: async () => {},
+    onDidChange: () => ({ dispose: () => {} }),
+    dispose: () => {},
+  } as unknown as PathExistenceCache;
+}
+
+// ---------------------------------------------------------------------------
 // Import providers under test (after vi.mock declarations)
 // ---------------------------------------------------------------------------
 
@@ -70,7 +104,7 @@ vi.mock("../src/folderSource", () => ({
   getAllFolders: vi.fn(),
 }));
 
-import { ActiveSessionsProvider, RecentProjectsProvider } from "../src/treeView";
+import { ActiveSessionsProvider, RecentProjectsProvider, VIEW_ITEM } from "../src/treeView";
 import { getAllFolders } from "../src/folderSource";
 import {
   TreeItemCollapsibleState,
@@ -90,7 +124,7 @@ describe("ActiveSessionsProvider — grouped tree", () => {
   it("getChildren(undefined) returns group-level items (not flat sessions)", () => {
     const sessions = [makeSession(root), makeSession(wt1), makeSession(wt2)];
     const mgr = makeSessionManager(sessions);
-    const provider = new ActiveSessionsProvider(mgr as never);
+    const provider = new ActiveSessionsProvider(mgr as never, makeFakeFavoritesStore());
 
     const topLevel = provider.getChildren(undefined);
 
@@ -103,7 +137,7 @@ describe("ActiveSessionsProvider — grouped tree", () => {
   it("getChildren(groupItem) returns the group's session leaf items", () => {
     const sessions = [makeSession(root), makeSession(wt1), makeSession(wt2)];
     const mgr = makeSessionManager(sessions);
-    const provider = new ActiveSessionsProvider(mgr as never);
+    const provider = new ActiveSessionsProvider(mgr as never, makeFakeFavoritesStore());
 
     const topLevel = provider.getChildren(undefined);
     const children = provider.getChildren(topLevel[0]);
@@ -119,7 +153,7 @@ describe("ActiveSessionsProvider — grouped tree", () => {
   it("child count N appears in the group row description", () => {
     const sessions = [makeSession(root), makeSession(wt1)];
     const mgr = makeSessionManager(sessions);
-    const provider = new ActiveSessionsProvider(mgr as never);
+    const provider = new ActiveSessionsProvider(mgr as never, makeFakeFavoritesStore());
 
     const topLevel = provider.getChildren(undefined);
 
@@ -129,7 +163,7 @@ describe("ActiveSessionsProvider — grouped tree", () => {
   it("worktree leaf description shows branch name, not parent directory", () => {
     const sessions = [makeSession(root), makeSession(wt1)];
     const mgr = makeSessionManager(sessions);
-    const provider = new ActiveSessionsProvider(mgr as never);
+    const provider = new ActiveSessionsProvider(mgr as never, makeFakeFavoritesStore());
 
     const [group] = provider.getChildren(undefined);
     const children = provider.getChildren(group);
@@ -149,7 +183,7 @@ describe("ActiveSessionsProvider — grouped tree", () => {
     const rootB = "/home/user/project-b";
     const sessions = [makeSession(root), makeSession(rootB)];
     const mgr = makeSessionManager(sessions);
-    const provider = new ActiveSessionsProvider(mgr as never);
+    const provider = new ActiveSessionsProvider(mgr as never, makeFakeFavoritesStore());
 
     const topLevel = provider.getChildren(undefined);
     expect(topLevel).toHaveLength(2);
@@ -158,7 +192,7 @@ describe("ActiveSessionsProvider — grouped tree", () => {
   it("single session with no worktrees still returns a group with 1 child", () => {
     const sessions = [makeSession(root)];
     const mgr = makeSessionManager(sessions);
-    const provider = new ActiveSessionsProvider(mgr as never);
+    const provider = new ActiveSessionsProvider(mgr as never, makeFakeFavoritesStore());
 
     const topLevel = provider.getChildren(undefined);
     expect(topLevel).toHaveLength(1);
@@ -184,7 +218,7 @@ describe("RecentProjectsProvider — grouped tree", () => {
   it("getChildren(undefined) returns group items when folders include worktrees", async () => {
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(root), makeFolder(wt1)]);
     const mgr = makeSessionManager([]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
 
@@ -195,7 +229,7 @@ describe("RecentProjectsProvider — grouped tree", () => {
   it("getChildren(groupItem) returns the group's folder leaf items", async () => {
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(root), makeFolder(wt1)]);
     const mgr = makeSessionManager([]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
     const children = await provider.getChildren(topLevel[0]);
@@ -209,7 +243,7 @@ describe("RecentProjectsProvider — grouped tree", () => {
   it("child count appears in group description for non-phantom root", async () => {
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(root), makeFolder(wt1)]);
     const mgr = makeSessionManager([]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
 
@@ -220,7 +254,7 @@ describe("RecentProjectsProvider — grouped tree", () => {
     // Only the worktree is in recents — the root itself is absent
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(wt1)]);
     const mgr = makeSessionManager([]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
 
@@ -231,7 +265,7 @@ describe("RecentProjectsProvider — grouped tree", () => {
   it("phantom root has a dimmed icon", async () => {
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(wt1)]);
     const mgr = makeSessionManager([]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
     const icon = topLevel[0].iconPath as ThemeIcon;
@@ -247,7 +281,7 @@ describe("RecentProjectsProvider — grouped tree", () => {
     // After this change, the same path may appear in both panels.
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(root)]);
     const mgr = makeSessionManager([makeSession(root)]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
 
@@ -265,9 +299,118 @@ describe("RecentProjectsProvider — grouped tree", () => {
     const rootB = "/home/user/project-b";
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(root), makeFolder(rootB)]);
     const mgr = makeSessionManager([]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
     expect(topLevel).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// VIEW_ITEM constants
+// ---------------------------------------------------------------------------
+
+describe("VIEW_ITEM constants", () => {
+  it("has all required tokens", () => {
+    expect(VIEW_ITEM.PROJECT_ROOT_FAVORITED).toBe("projectRoot.favorited");
+    expect(VIEW_ITEM.PROJECT_ROOT_UNFAVORITED).toBe("projectRoot.unfavorited");
+    expect(VIEW_ITEM.PROJECT_ROOT_MISSING).toBe("projectRoot.missing");
+    expect(VIEW_ITEM.WORKTREE_CHILD).toBe("worktreeChild");
+    expect(VIEW_ITEM.ACTIVE_SESSION).toBe("activeSession");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-panel star coupling + race regression
+// ---------------------------------------------------------------------------
+
+describe("Cross-panel star coupling", () => {
+  function makeRealMemento(): import("vscode").Memento {
+    const data: Record<string, unknown> = {};
+    return {
+      keys: () => Object.keys(data),
+      get: <T>(k: string) => data[k] as T | undefined,
+      update: async (k: string, v: unknown) => { data[k] = v; },
+    } as unknown as import("vscode").Memento;
+  }
+
+  it("Recent Projects group row reflects favorited state immediately after store.add", async () => {
+    const store = new FavoritesStore(makeRealMemento());
+    const cache = new PathExistenceCache();
+    const sm = makeSessionManager([]);
+
+    vi.mocked(getAllFolders).mockResolvedValue([
+      { folderPath: "C:/proj", name: "proj", parentDir: "C:", source: "recent" as const },
+    ]);
+
+    const provider = new RecentProjectsProvider(sm as never, store, cache);
+
+    // Before add: group row contextValue should be unfavorited
+    const groupsBefore = await provider.getChildren();
+    expect(groupsBefore[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_UNFAVORITED);
+
+    await store.add("C:/proj");
+
+    // After add: group row contextValue is favorited
+    const groupsAfter = await provider.getChildren();
+    expect(groupsAfter[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_FAVORITED);
+  });
+
+  it("regression: group rows reflect live store state, not a stale snapshot", async () => {
+    // Simulates the v1-blocker race: provider's getChildren(undefined) is called
+    // AFTER getAllFolders() resolved, so the group-item construction reads the
+    // store synchronously at construction time. If a mutation lands between
+    // getAllFolders() resolving and a second getChildren() call, the new state
+    // must be reflected.
+    const store = new FavoritesStore(makeRealMemento());
+    const cache = new PathExistenceCache();
+    const sm = makeSessionManager([]);
+
+    vi.mocked(getAllFolders).mockResolvedValue([
+      { folderPath: "C:/proj", name: "proj", parentDir: "C:", source: "recent" as const },
+    ]);
+
+    const provider = new RecentProjectsProvider(sm as never, store, cache);
+
+    // Step 1: fetch top-level groups (this is where getAllFolders is awaited)
+    const groups = await provider.getChildren();
+    expect(groups).toHaveLength(1);
+
+    // Step 2: mutate the store.
+    await store.add("C:/proj");
+
+    // Step 3: re-fetch groups — they MUST reflect the latest store state.
+    const groupsAfter = await provider.getChildren();
+    expect(groupsAfter[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_FAVORITED);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ActiveSessionsProvider favorited contextValue
+// ---------------------------------------------------------------------------
+
+describe("ActiveSessionsProvider favorited contextValue", () => {
+  it("group row reflects favorited state synchronously after store.add", async () => {
+    const data: Record<string, unknown> = {};
+    const memento = {
+      keys: () => Object.keys(data),
+      get: <T>(k: string) => data[k] as T | undefined,
+      update: async (k: string, v: unknown) => { data[k] = v; },
+    } as unknown as import("vscode").Memento;
+
+    const store = new FavoritesStore(memento);
+    const sm = makeSessionManager([
+      makeSession("C:/proj"),
+    ]);
+
+    const provider = new ActiveSessionsProvider(sm as never, store);
+
+    const groupsBefore = provider.getChildren();
+    expect(groupsBefore[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_UNFAVORITED);
+
+    await store.add("C:/proj");
+
+    const groupsAfter = provider.getChildren();
+    expect(groupsAfter[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_FAVORITED);
   });
 });
