@@ -249,3 +249,107 @@ export class RecentProjectsProvider
     this._onDidChangeTreeData.fire(undefined);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Favorites — tree items
+// ---------------------------------------------------------------------------
+
+/**
+ * A single flat row in the Favorites panel.
+ *
+ * v1: favorites are rendered single-level (no nested worktree children).
+ * Worktree children of favorited project roots appear in Recent Projects only.
+ * Missing entries get a dimmed icon and a click-to-relocate command instead of
+ * the normal open-session command, so the user cannot accidentally launch a
+ * session for a path that no longer exists.
+ */
+class FavoriteLeafItem extends vscode.TreeItem {
+  readonly folderPath: string;
+
+  constructor(
+    folderPath: string,
+    isWorktreeChild: boolean,
+    state: { missing: boolean }
+  ) {
+    super(path.basename(folderPath) || folderPath, vscode.TreeItemCollapsibleState.None);
+    this.folderPath = folderPath;
+    this.tooltip = state.missing
+      ? "This folder is missing on disk. Click or press Enter to relocate; right-click for more options."
+      : folderPath;
+
+    if (isWorktreeChild) {
+      this.contextValue = VIEW_ITEM.WORKTREE_CHILD;
+      this.iconPath = new vscode.ThemeIcon("folder");
+      this.command = {
+        command: "claudeConductor.openSession",
+        title: "Launch Session",
+        arguments: [folderPath],
+      };
+    } else if (state.missing) {
+      this.contextValue = VIEW_ITEM.PROJECT_ROOT_MISSING;
+      this.description = "(missing)";
+      this.iconPath = new vscode.ThemeIcon(
+        "folder",
+        new vscode.ThemeColor("disabledForeground")
+      );
+      this.command = {
+        command: "claudeConductor.locateFavorite",
+        title: "Relocate Folder",
+        arguments: [folderPath],
+      };
+    } else {
+      this.contextValue = VIEW_ITEM.PROJECT_ROOT_FAVORITED;
+      this.iconPath = new vscode.ThemeIcon("folder");
+      this.command = {
+        command: "claudeConductor.openSession",
+        title: "Launch Session",
+        arguments: [folderPath],
+      };
+    }
+  }
+}
+
+type FavoriteTreeNode = FavoriteLeafItem;  // single-level for now
+
+export class FavoritesProvider implements vscode.TreeDataProvider<FavoriteTreeNode> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<FavoriteTreeNode | undefined | void>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  constructor(
+    private readonly store: FavoritesStore,
+    private readonly cache: PathExistenceCache
+  ) {
+    store.onDidChange(() => this._onDidChangeTreeData.fire(undefined));
+    cache.onDidChange(() => this._onDidChangeTreeData.fire(undefined));
+  }
+
+  getTreeItem(el: FavoriteTreeNode): vscode.TreeItem { return el; }
+
+  async getChildren(_element?: FavoriteTreeNode): Promise<FavoriteTreeNode[]> {
+    // Single-level rendering: each favorite is a flat top-level row.
+    // Worktree children of favorited project roots are NOT nested here in v1
+    // (worktrees aren't stored in favorites). Recent Projects continues to
+    // show the nested view.
+    const entries = [...this.store.list()];
+
+    entries.sort((a, b) => {
+      const aName = path.basename(a.path).toLowerCase();
+      const bName = path.basename(b.path).toLowerCase();
+      if (aName !== bName) return aName.localeCompare(bName);
+      return a.path.toLowerCase().localeCompare(b.path.toLowerCase());
+    });
+
+    return entries.map(e => {
+      const peek = this.cache.peek(e.path);
+      // Treat "unknown" as optimistic-present (e.g. UNC paths never get stat-checked).
+      const missing = peek.kind === "missing";
+      return new FavoriteLeafItem(e.path, false, { missing });
+    });
+  }
+
+  /** Returns the over-cap banner string when storage drift exists; null otherwise. */
+  getOverCapBanner(): string | null {
+    if (!this.store.isOverCap()) return null;
+    return `Favorites: ${this.store.list().length} entries (over the 25 cap — consider removing some).`;
+  }
+}
