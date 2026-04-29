@@ -161,7 +161,7 @@
         },
         {
           "command": "claudeConductor.openSession",
-          "when": "viewItem =~ /^projectRoot\\.(favorited|unfavorited|missing)$/",
+          "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem =~ /^projectRoot\\.(favorited|unfavorited|missing)$/",
           "group": "inline"
         },
         {
