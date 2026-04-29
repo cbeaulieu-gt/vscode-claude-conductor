@@ -7,6 +7,8 @@ import { ClaudeTerminalLinkProvider } from "./terminalLinks";
 import { StateWatcher } from "./stateWatcher";
 import { ensureHooksInstalled, setupHooksCommand, uninstallHooks } from "./hookInstaller";
 import { isSameWorkspaceFolder } from "./workspaceMatch";
+import { FavoritesStore } from "./favoritesStore";
+import { PathExistenceCache } from "./pathExistenceCache";
 
 let sessionManager: SessionManager;
 
@@ -111,8 +113,11 @@ export function activate(context: vscode.ExtensionContext): void {
   }, 3000);
 
   // Tree view providers
+  // TODO(Task 8): wire real FavoritesStore and PathExistenceCache instances here.
+  const favoritesStore = new FavoritesStore(context.globalState);
+  const existenceCache = new PathExistenceCache();
   const activeProvider = new ActiveSessionsProvider(sessionManager);
-  const recentProvider = new RecentProjectsProvider(sessionManager);
+  const recentProvider = new RecentProjectsProvider(sessionManager, favoritesStore, existenceCache);
 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("claudeConductor.activeSessions", activeProvider),

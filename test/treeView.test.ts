@@ -13,6 +13,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ActiveSession } from "../src/sessionManager";
 import type { FolderEntry } from "../src/folderSource";
+import type { FavoritesStore } from "../src/favoritesStore";
+import type { PathExistenceCache } from "../src/pathExistenceCache";
 
 // ---------------------------------------------------------------------------
 // Minimal stubs — keep them local so this test file is self-contained.
@@ -62,6 +64,36 @@ function makeSessionManager(sessions: ActiveSession[]) {
 }
 
 // ---------------------------------------------------------------------------
+// Minimal FavoritesStore and PathExistenceCache stubs
+// ---------------------------------------------------------------------------
+
+function makeFakeFavoritesStore(): FavoritesStore {
+  return {
+    isFavorited: () => false,
+    list: () => [],
+    isOverCap: () => false,
+    onDidChange: () => ({ dispose: () => {} }),
+    add: async () => ({ ok: true }),
+    remove: async () => undefined,
+    relocate: async () => ({ ok: true }),
+    waitForIdle: async () => undefined,
+    dispose: () => {},
+  } as unknown as FavoritesStore;
+}
+
+function makeFakeExistenceCache(): PathExistenceCache {
+  return {
+    peek: () => ({ kind: "unknown" } as const),
+    markPresent: () => {},
+    markMissing: () => {},
+    evict: () => {},
+    refresh: async () => {},
+    onDidChange: () => ({ dispose: () => {} }),
+    dispose: () => {},
+  } as unknown as PathExistenceCache;
+}
+
+// ---------------------------------------------------------------------------
 // Import providers under test (after vi.mock declarations)
 // ---------------------------------------------------------------------------
 
@@ -70,7 +102,7 @@ vi.mock("../src/folderSource", () => ({
   getAllFolders: vi.fn(),
 }));
 
-import { ActiveSessionsProvider, RecentProjectsProvider } from "../src/treeView";
+import { ActiveSessionsProvider, RecentProjectsProvider, VIEW_ITEM } from "../src/treeView";
 import { getAllFolders } from "../src/folderSource";
 import {
   TreeItemCollapsibleState,
@@ -184,7 +216,7 @@ describe("RecentProjectsProvider — grouped tree", () => {
   it("getChildren(undefined) returns group items when folders include worktrees", async () => {
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(root), makeFolder(wt1)]);
     const mgr = makeSessionManager([]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
 
@@ -195,7 +227,7 @@ describe("RecentProjectsProvider — grouped tree", () => {
   it("getChildren(groupItem) returns the group's folder leaf items", async () => {
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(root), makeFolder(wt1)]);
     const mgr = makeSessionManager([]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
     const children = await provider.getChildren(topLevel[0]);
@@ -209,7 +241,7 @@ describe("RecentProjectsProvider — grouped tree", () => {
   it("child count appears in group description for non-phantom root", async () => {
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(root), makeFolder(wt1)]);
     const mgr = makeSessionManager([]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
 
@@ -220,7 +252,7 @@ describe("RecentProjectsProvider — grouped tree", () => {
     // Only the worktree is in recents — the root itself is absent
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(wt1)]);
     const mgr = makeSessionManager([]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
 
@@ -231,7 +263,7 @@ describe("RecentProjectsProvider — grouped tree", () => {
   it("phantom root has a dimmed icon", async () => {
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(wt1)]);
     const mgr = makeSessionManager([]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
     const icon = topLevel[0].iconPath as ThemeIcon;
@@ -247,7 +279,7 @@ describe("RecentProjectsProvider — grouped tree", () => {
     // After this change, the same path may appear in both panels.
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(root)]);
     const mgr = makeSessionManager([makeSession(root)]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
 
@@ -265,9 +297,23 @@ describe("RecentProjectsProvider — grouped tree", () => {
     const rootB = "/home/user/project-b";
     vi.mocked(getAllFolders).mockResolvedValue([makeFolder(root), makeFolder(rootB)]);
     const mgr = makeSessionManager([]);
-    const provider = new RecentProjectsProvider(mgr as never);
+    const provider = new RecentProjectsProvider(mgr as never, makeFakeFavoritesStore(), makeFakeExistenceCache());
 
     const topLevel = await provider.getChildren(undefined);
     expect(topLevel).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// VIEW_ITEM constants
+// ---------------------------------------------------------------------------
+
+describe("VIEW_ITEM constants", () => {
+  it("has all required tokens", () => {
+    expect(VIEW_ITEM.PROJECT_ROOT_FAVORITED).toBe("projectRoot.favorited");
+    expect(VIEW_ITEM.PROJECT_ROOT_UNFAVORITED).toBe("projectRoot.unfavorited");
+    expect(VIEW_ITEM.PROJECT_ROOT_MISSING).toBe("projectRoot.missing");
+    expect(VIEW_ITEM.WORKTREE_CHILD).toBe("worktreeChild");
+    expect(VIEW_ITEM.ACTIVE_SESSION).toBe("activeSession");
   });
 });

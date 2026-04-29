@@ -3,6 +3,20 @@ import * as path from "path";
 import { SessionManager, ActiveSession } from "./sessionManager";
 import { getAllFolders, FolderEntry } from "./folderSource";
 import { groupByProjectRoot, ProjectGroup } from "./projectGrouping";
+import { FavoritesStore } from "./favoritesStore";
+import { PathExistenceCache } from "./pathExistenceCache";
+
+// ---------------------------------------------------------------------------
+// Shared contextValue tokens
+// ---------------------------------------------------------------------------
+
+export const VIEW_ITEM = {
+  PROJECT_ROOT_FAVORITED:   "projectRoot.favorited",
+  PROJECT_ROOT_UNFAVORITED: "projectRoot.unfavorited",
+  PROJECT_ROOT_MISSING:     "projectRoot.missing",
+  WORKTREE_CHILD:           "worktreeChild",
+  ACTIVE_SESSION:           "activeSession",
+} as const;
 
 // ---------------------------------------------------------------------------
 // Active Sessions — tree items
@@ -148,7 +162,11 @@ class RecentGroupItem extends vscode.TreeItem {
 class RecentProjectItem extends vscode.TreeItem {
   readonly folderPath: string;
 
-  constructor(entry: FolderEntry, isWorktreeChild: boolean) {
+  constructor(
+    entry: FolderEntry,
+    isWorktreeChild: boolean,
+    state: { favorited: boolean; missing: boolean }
+  ) {
     super(entry.name, vscode.TreeItemCollapsibleState.None);
     this.folderPath = entry.folderPath;
     this.description = isWorktreeChild
@@ -156,7 +174,22 @@ class RecentProjectItem extends vscode.TreeItem {
       : entry.parentDir;
     this.tooltip = `${entry.folderPath} (${entry.source})`;
     this.iconPath = new vscode.ThemeIcon("folder");
-    this.contextValue = "recentProject";
+
+    if (isWorktreeChild) {
+      this.contextValue = VIEW_ITEM.WORKTREE_CHILD;
+    } else if (state.missing) {
+      this.contextValue = VIEW_ITEM.PROJECT_ROOT_MISSING;
+      this.description = "(missing)";
+      this.iconPath = new vscode.ThemeIcon(
+        "folder",
+        new vscode.ThemeColor("disabledForeground")
+      );
+    } else if (state.favorited) {
+      this.contextValue = VIEW_ITEM.PROJECT_ROOT_FAVORITED;
+    } else {
+      this.contextValue = VIEW_ITEM.PROJECT_ROOT_UNFAVORITED;
+    }
+
     this.command = {
       command: "claudeConductor.openSession",
       title: "Launch Session",
@@ -170,11 +203,17 @@ type RecentTreeNode = RecentGroupItem | RecentProjectItem;
 export class RecentProjectsProvider
   implements vscode.TreeDataProvider<RecentTreeNode>
 {
-  private readonly _onDidChangeTreeData = new vscode.EventEmitter<void>();
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<RecentTreeNode | undefined | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  constructor(private readonly sessionManager: SessionManager) {
-    sessionManager.onDidChangeSessions(() => this._onDidChangeTreeData.fire());
+  constructor(
+    private readonly sessionManager: SessionManager,
+    private readonly favoritesStore: FavoritesStore,
+    private readonly existenceCache: PathExistenceCache
+  ) {
+    sessionManager.onDidChangeSessions(() => this._onDidChangeTreeData.fire(undefined));
+    favoritesStore.onDidChange(() => this._onDidChangeTreeData.fire(undefined));
+    existenceCache.onDidChange(() => this._onDidChangeTreeData.fire(undefined));
   }
 
   getTreeItem(element: RecentTreeNode): vscode.TreeItem {
@@ -183,14 +222,16 @@ export class RecentProjectsProvider
 
   async getChildren(element?: RecentTreeNode): Promise<RecentTreeNode[]> {
     if (element instanceof RecentGroupItem) {
-      // Return the leaves for this group.
       const { group } = element;
       const leaves: RecentProjectItem[] = [];
       if (group.top !== null) {
-        leaves.push(new RecentProjectItem(group.top, false));
+        const fav = this.favoritesStore.isFavorited(group.top.folderPath);
+        const peek = this.existenceCache.peek(group.top.folderPath);
+        const missing = fav && peek.kind === "missing";  // only flag favorited rows as missing
+        leaves.push(new RecentProjectItem(group.top, false, { favorited: fav, missing }));
       }
       for (const child of group.children) {
-        leaves.push(new RecentProjectItem(child, true));
+        leaves.push(new RecentProjectItem(child, true, { favorited: false, missing: false }));
       }
       return leaves;
     }
@@ -205,6 +246,6 @@ export class RecentProjectsProvider
   }
 
   refresh(): void {
-    this._onDidChangeTreeData.fire();
+    this._onDidChangeTreeData.fire(undefined);
   }
 }
