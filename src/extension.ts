@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { SessionManager, ActiveSession } from "./sessionManager";
 import { showQuickPick, addFolderPrompt } from "./quickPick";
-import { ActiveSessionsProvider, RecentProjectsProvider } from "./treeView";
+import { ActiveSessionsProvider, RecentProjectsProvider, FavoritesProvider } from "./treeView";
 import { StatusBar } from "./statusBar";
 import { ClaudeTerminalLinkProvider } from "./terminalLinks";
 import { StateWatcher } from "./stateWatcher";
@@ -34,6 +34,23 @@ function resolveSession(arg: unknown): ActiveSession | undefined {
   // ActiveSession case: has a .terminal property
   if ("terminal" in obj && "folderPath" in obj) {
     return obj as unknown as ActiveSession;
+  }
+  return undefined;
+}
+
+/**
+ * Normalizes the argument passed to a favorites command.
+ *
+ * Favorites commands may be invoked with a plain string path (programmatic calls),
+ * a TreeItem-shaped object whose `.folderPath` or `.path` exposes the path (inline
+ * action buttons and context-menu entries), or `undefined` (Command Palette).
+ */
+function resolvePathArg(arg: unknown): string | undefined {
+  if (typeof arg === "string") return arg;
+  if (arg && typeof arg === "object") {
+    const obj = arg as Record<string, unknown>;
+    if (typeof obj.folderPath === "string") return obj.folderPath;
+    if (typeof obj.path === "string") return obj.path;
   }
   return undefined;
 }
@@ -113,15 +130,30 @@ export function activate(context: vscode.ExtensionContext): void {
   }, 3000);
 
   // Tree view providers
-  // TODO(Task 8): wire real FavoritesStore and PathExistenceCache instances here.
   const favoritesStore = new FavoritesStore(context.globalState);
   const existenceCache = new PathExistenceCache();
   const activeProvider = new ActiveSessionsProvider(sessionManager);
   const recentProvider = new RecentProjectsProvider(sessionManager, favoritesStore, existenceCache);
+  const favoritesProvider = new FavoritesProvider(favoritesStore, existenceCache);
+
+  const favoritesView = vscode.window.createTreeView("claudeConductor.favorites", {
+    treeDataProvider: favoritesProvider,
+    showCollapseAll: false,
+  });
+
+  // Banner above the Favorites tree when storage drift produces > MAX_FAVORITES entries.
+  function refreshOverCapBanner() {
+    favoritesView.message = favoritesProvider.getOverCapBanner() ?? undefined;
+  }
+  favoritesStore.onDidChange(() => refreshOverCapBanner());
+  refreshOverCapBanner();  // initial state
 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("claudeConductor.activeSessions", activeProvider),
-    vscode.window.registerTreeDataProvider("claudeConductor.recentProjects", recentProvider)
+    vscode.window.registerTreeDataProvider("claudeConductor.recentProjects", recentProvider),
+    favoritesView,
+    favoritesStore,
+    existenceCache,
   );
 
   // Status bar
@@ -137,7 +169,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("claudeConductor.openSession", async (folderPath?: string) => {
       if (typeof folderPath === "string") {
         const result = await sessionManager.launchSession(folderPath);
-        if (!result.ok && result.reason === "missing") {
+        if (result.ok) {
+          existenceCache.markPresent(folderPath);
+        } else if (result.reason === "missing") {
+          existenceCache.markMissing(folderPath);
           void vscode.window.showErrorMessage(result.message);
         }
       } else {
@@ -209,6 +244,47 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand("claudeConductor.prevSession", () => {
       cycleSession(sessionManager, -1);
+    }),
+
+    vscode.commands.registerCommand("claudeConductor.addFavorite", async (arg: unknown) => {
+      const p = resolvePathArg(arg);
+      if (!p) return;
+      const r = await favoritesStore.add(p);
+      if (!r.ok && r.reason) {
+        void vscode.window.showWarningMessage(r.reason);
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeConductor.removeFavorite", async (arg: unknown) => {
+      const p = resolvePathArg(arg);
+      if (!p) return;
+      await favoritesStore.remove(p);
+      existenceCache.evict(p);
+    }),
+
+    vscode.commands.registerCommand("claudeConductor.locateFavorite", async (oldPathArg: unknown) => {
+      const oldPath = resolvePathArg(oldPathArg);
+      if (!oldPath) return;
+
+      const picked = await vscode.window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+        openLabel: "Select new location",
+      });
+      if (!picked || picked.length === 0) return;
+      const newPath = picked[0].fsPath;
+
+      const r = await favoritesStore.relocate(oldPath, newPath);
+      if (r.ok) {
+        existenceCache.evict(oldPath);
+        if (r.reason) {
+          // Dedup case: the relocate succeeded but with an informational reason.
+          void vscode.window.showInformationMessage(r.reason);
+        }
+      } else if (r.reason) {
+        void vscode.window.showWarningMessage(r.reason);
+      }
     }),
   );
 }
