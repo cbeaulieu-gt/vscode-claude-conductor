@@ -29,15 +29,17 @@ export const VIEW_ITEM = {
 class ActiveGroupItem extends vscode.TreeItem {
   readonly group: ProjectGroup<ActiveSession>;
 
-  constructor(group: ProjectGroup<ActiveSession>) {
+  constructor(group: ProjectGroup<ActiveSession>, state: { favorited: boolean }) {
     const label = path.basename(group.root);
     super(label, vscode.TreeItemCollapsibleState.Collapsed);
     this.group = group;
 
     const count = group.children.length + (group.top !== null ? 1 : 0);
     this.description = `(${count})`;
-    // Folder icon — no command so click only expands/collapses.
     this.iconPath = new vscode.ThemeIcon("folder");
+    this.contextValue = state.favorited
+      ? VIEW_ITEM.PROJECT_ROOT_FAVORITED
+      : VIEW_ITEM.PROJECT_ROOT_UNFAVORITED;
     this.tooltip = group.root;
   }
 }
@@ -80,8 +82,12 @@ export class ActiveSessionsProvider
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  constructor(private readonly sessionManager: SessionManager) {
+  constructor(
+    private readonly sessionManager: SessionManager,
+    private readonly favoritesStore: FavoritesStore
+  ) {
     sessionManager.onDidChangeSessions(() => this._onDidChangeTreeData.fire());
+    favoritesStore.onDidChange(() => this._onDidChangeTreeData.fire());
   }
 
   getTreeItem(element: ActiveTreeNode): vscode.TreeItem {
@@ -107,7 +113,10 @@ export class ActiveSessionsProvider
     // Top level: return one group row per project root.
     const sessions = this.sessionManager.activeSessions;
     const groups = groupByProjectRoot(sessions, (s) => s.folderPath);
-    return groups.map((g) => new ActiveGroupItem(g));
+    return groups.map((g) => {
+      const fav = this.favoritesStore.isFavorited(g.root);
+      return new ActiveGroupItem(g, { favorited: fav });
+    });
   }
 
   refresh(): void {
@@ -131,7 +140,10 @@ export class ActiveSessionsProvider
 class RecentGroupItem extends vscode.TreeItem {
   readonly group: ProjectGroup<FolderEntry>;
 
-  constructor(group: ProjectGroup<FolderEntry>) {
+  constructor(
+    group: ProjectGroup<FolderEntry>,
+    state: { favorited: boolean; missing: boolean }
+  ) {
     const label = path.basename(group.root);
     super(label, vscode.TreeItemCollapsibleState.Collapsed);
     this.group = group;
@@ -139,15 +151,29 @@ class RecentGroupItem extends vscode.TreeItem {
     const count = group.children.length + (group.top !== null ? 1 : 0);
 
     if (group.isPhantom) {
+      // Phantom roots stay un-favoritable. No contextValue → no star menu.
+      // (We don't conflate "not in recents" with "favorite missing on disk".)
       this.description = `(${count}) (not in recents)`;
-      // Dimmed folder icon — signals that the root itself is not in Recent Projects.
       this.iconPath = new vscode.ThemeIcon(
         "folder",
         new vscode.ThemeColor("disabledForeground")
       );
+    } else if (state.missing && state.favorited) {
+      // Favorite whose root is missing on disk → projectRoot.missing
+      this.description = `(${count}) (missing)`;
+      this.iconPath = new vscode.ThemeIcon(
+        "folder",
+        new vscode.ThemeColor("disabledForeground")
+      );
+      this.contextValue = VIEW_ITEM.PROJECT_ROOT_MISSING;
+    } else if (state.favorited) {
+      this.description = `(${count})`;
+      this.iconPath = new vscode.ThemeIcon("folder");
+      this.contextValue = VIEW_ITEM.PROJECT_ROOT_FAVORITED;
     } else {
       this.description = `(${count})`;
       this.iconPath = new vscode.ThemeIcon("folder");
+      this.contextValue = VIEW_ITEM.PROJECT_ROOT_UNFAVORITED;
     }
 
     this.tooltip = group.root;
@@ -162,11 +188,7 @@ class RecentGroupItem extends vscode.TreeItem {
 class RecentProjectItem extends vscode.TreeItem {
   readonly folderPath: string;
 
-  constructor(
-    entry: FolderEntry,
-    isWorktreeChild: boolean,
-    state: { favorited: boolean; missing: boolean }
-  ) {
+  constructor(entry: FolderEntry, isWorktreeChild: boolean) {
     super(entry.name, vscode.TreeItemCollapsibleState.None);
     this.folderPath = entry.folderPath;
     this.description = isWorktreeChild
@@ -174,21 +196,7 @@ class RecentProjectItem extends vscode.TreeItem {
       : entry.parentDir;
     this.tooltip = `${entry.folderPath} (${entry.source})`;
     this.iconPath = new vscode.ThemeIcon("folder");
-
-    if (isWorktreeChild) {
-      this.contextValue = VIEW_ITEM.WORKTREE_CHILD;
-    } else if (state.missing) {
-      this.contextValue = VIEW_ITEM.PROJECT_ROOT_MISSING;
-      this.description = "(missing)";
-      this.iconPath = new vscode.ThemeIcon(
-        "folder",
-        new vscode.ThemeColor("disabledForeground")
-      );
-    } else if (state.favorited) {
-      this.contextValue = VIEW_ITEM.PROJECT_ROOT_FAVORITED;
-    } else {
-      this.contextValue = VIEW_ITEM.PROJECT_ROOT_UNFAVORITED;
-    }
+    this.contextValue = isWorktreeChild ? VIEW_ITEM.WORKTREE_CHILD : undefined;
 
     this.command = {
       command: "claudeConductor.openSession",
@@ -225,13 +233,10 @@ export class RecentProjectsProvider
       const { group } = element;
       const leaves: RecentProjectItem[] = [];
       if (group.top !== null) {
-        const fav = this.favoritesStore.isFavorited(group.top.folderPath);
-        const peek = this.existenceCache.peek(group.top.folderPath);
-        const missing = fav && peek.kind === "missing";  // only flag favorited rows as missing
-        leaves.push(new RecentProjectItem(group.top, false, { favorited: fav, missing }));
+        leaves.push(new RecentProjectItem(group.top, false));
       }
       for (const child of group.children) {
-        leaves.push(new RecentProjectItem(child, true, { favorited: false, missing: false }));
+        leaves.push(new RecentProjectItem(child, true));
       }
       return leaves;
     }
@@ -242,7 +247,13 @@ export class RecentProjectsProvider
     // Projects simultaneously.
     const folders = await getAllFolders();
     const groups = groupByProjectRoot(folders, (f) => f.folderPath);
-    return groups.map((g) => new RecentGroupItem(g));
+    return groups.map((g) => {
+      // For phantom groups, state is read but the constructor ignores it.
+      const fav = !g.isPhantom && this.favoritesStore.isFavorited(g.root);
+      const peek = this.existenceCache.peek(g.root);
+      const missing = fav && peek.kind === "missing";
+      return new RecentGroupItem(g, { favorited: fav, missing });
+    });
   }
 
   refresh(): void {

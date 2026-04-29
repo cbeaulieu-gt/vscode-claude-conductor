@@ -124,7 +124,7 @@ describe("ActiveSessionsProvider — grouped tree", () => {
   it("getChildren(undefined) returns group-level items (not flat sessions)", () => {
     const sessions = [makeSession(root), makeSession(wt1), makeSession(wt2)];
     const mgr = makeSessionManager(sessions);
-    const provider = new ActiveSessionsProvider(mgr as never);
+    const provider = new ActiveSessionsProvider(mgr as never, makeFakeFavoritesStore());
 
     const topLevel = provider.getChildren(undefined);
 
@@ -137,7 +137,7 @@ describe("ActiveSessionsProvider — grouped tree", () => {
   it("getChildren(groupItem) returns the group's session leaf items", () => {
     const sessions = [makeSession(root), makeSession(wt1), makeSession(wt2)];
     const mgr = makeSessionManager(sessions);
-    const provider = new ActiveSessionsProvider(mgr as never);
+    const provider = new ActiveSessionsProvider(mgr as never, makeFakeFavoritesStore());
 
     const topLevel = provider.getChildren(undefined);
     const children = provider.getChildren(topLevel[0]);
@@ -153,7 +153,7 @@ describe("ActiveSessionsProvider — grouped tree", () => {
   it("child count N appears in the group row description", () => {
     const sessions = [makeSession(root), makeSession(wt1)];
     const mgr = makeSessionManager(sessions);
-    const provider = new ActiveSessionsProvider(mgr as never);
+    const provider = new ActiveSessionsProvider(mgr as never, makeFakeFavoritesStore());
 
     const topLevel = provider.getChildren(undefined);
 
@@ -163,7 +163,7 @@ describe("ActiveSessionsProvider — grouped tree", () => {
   it("worktree leaf description shows branch name, not parent directory", () => {
     const sessions = [makeSession(root), makeSession(wt1)];
     const mgr = makeSessionManager(sessions);
-    const provider = new ActiveSessionsProvider(mgr as never);
+    const provider = new ActiveSessionsProvider(mgr as never, makeFakeFavoritesStore());
 
     const [group] = provider.getChildren(undefined);
     const children = provider.getChildren(group);
@@ -183,7 +183,7 @@ describe("ActiveSessionsProvider — grouped tree", () => {
     const rootB = "/home/user/project-b";
     const sessions = [makeSession(root), makeSession(rootB)];
     const mgr = makeSessionManager(sessions);
-    const provider = new ActiveSessionsProvider(mgr as never);
+    const provider = new ActiveSessionsProvider(mgr as never, makeFakeFavoritesStore());
 
     const topLevel = provider.getChildren(undefined);
     expect(topLevel).toHaveLength(2);
@@ -192,7 +192,7 @@ describe("ActiveSessionsProvider — grouped tree", () => {
   it("single session with no worktrees still returns a group with 1 child", () => {
     const sessions = [makeSession(root)];
     const mgr = makeSessionManager(sessions);
-    const provider = new ActiveSessionsProvider(mgr as never);
+    const provider = new ActiveSessionsProvider(mgr as never, makeFakeFavoritesStore());
 
     const topLevel = provider.getChildren(undefined);
     expect(topLevel).toHaveLength(1);
@@ -334,7 +334,7 @@ describe("Cross-panel star coupling", () => {
     } as unknown as import("vscode").Memento;
   }
 
-  it("Recent Projects row reflects favorited state immediately after store.add", async () => {
+  it("Recent Projects group row reflects favorited state immediately after store.add", async () => {
     const store = new FavoritesStore(makeRealMemento());
     const cache = new PathExistenceCache();
     const sm = makeSessionManager([]);
@@ -345,24 +345,22 @@ describe("Cross-panel star coupling", () => {
 
     const provider = new RecentProjectsProvider(sm as never, store, cache);
 
-    // Before add: contextValue should be unfavorited
+    // Before add: group row contextValue should be unfavorited
     const groupsBefore = await provider.getChildren();
-    const leavesBefore = await provider.getChildren(groupsBefore[0]);
-    expect(leavesBefore[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_UNFAVORITED);
+    expect(groupsBefore[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_UNFAVORITED);
 
     await store.add("C:/proj");
 
-    // After add: contextValue is favorited
+    // After add: group row contextValue is favorited
     const groupsAfter = await provider.getChildren();
-    const leavesAfter = await provider.getChildren(groupsAfter[0]);
-    expect(leavesAfter[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_FAVORITED);
+    expect(groupsAfter[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_FAVORITED);
   });
 
-  it("regression: leaf items reflect live store state, not a stale snapshot", async () => {
-    // Simulates the v1-blocker race: provider's getChildren(group) is called
-    // AFTER getAllFolders() resolved, so the leaf-item construction reads the
+  it("regression: group rows reflect live store state, not a stale snapshot", async () => {
+    // Simulates the v1-blocker race: provider's getChildren(undefined) is called
+    // AFTER getAllFolders() resolved, so the group-item construction reads the
     // store synchronously at construction time. If a mutation lands between
-    // getAllFolders() resolving and getChildren(group) running, the new state
+    // getAllFolders() resolving and a second getChildren() call, the new state
     // must be reflected.
     const store = new FavoritesStore(makeRealMemento());
     const cache = new PathExistenceCache();
@@ -378,13 +376,41 @@ describe("Cross-panel star coupling", () => {
     const groups = await provider.getChildren();
     expect(groups).toHaveLength(1);
 
-    // Step 2: mutate the store BEFORE asking for the group's leaves.
-    // The leaf construction is synchronous and reads `store.isFavorited()`
-    // at that moment.
+    // Step 2: mutate the store.
     await store.add("C:/proj");
 
-    // Step 3: now ask for leaves. They MUST reflect the latest store state.
-    const leaves = await provider.getChildren(groups[0]);
-    expect(leaves[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_FAVORITED);
+    // Step 3: re-fetch groups — they MUST reflect the latest store state.
+    const groupsAfter = await provider.getChildren();
+    expect(groupsAfter[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_FAVORITED);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ActiveSessionsProvider favorited contextValue
+// ---------------------------------------------------------------------------
+
+describe("ActiveSessionsProvider favorited contextValue", () => {
+  it("group row reflects favorited state synchronously after store.add", async () => {
+    const data: Record<string, unknown> = {};
+    const memento = {
+      keys: () => Object.keys(data),
+      get: <T>(k: string) => data[k] as T | undefined,
+      update: async (k: string, v: unknown) => { data[k] = v; },
+    } as unknown as import("vscode").Memento;
+
+    const store = new FavoritesStore(memento);
+    const sm = makeSessionManager([
+      makeSession("C:/proj"),
+    ]);
+
+    const provider = new ActiveSessionsProvider(sm as never, store);
+
+    const groupsBefore = provider.getChildren();
+    expect(groupsBefore[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_UNFAVORITED);
+
+    await store.add("C:/proj");
+
+    const groupsAfter = provider.getChildren();
+    expect(groupsAfter[0].contextValue).toBe(VIEW_ITEM.PROJECT_ROOT_FAVORITED);
   });
 });

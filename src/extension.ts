@@ -132,7 +132,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Tree view providers
   const favoritesStore = new FavoritesStore(context.globalState);
   const existenceCache = new PathExistenceCache();
-  const activeProvider = new ActiveSessionsProvider(sessionManager);
+  const activeProvider = new ActiveSessionsProvider(sessionManager, favoritesStore);
   const recentProvider = new RecentProjectsProvider(sessionManager, favoritesStore, existenceCache);
   const favoritesProvider = new FavoritesProvider(favoritesStore, existenceCache);
 

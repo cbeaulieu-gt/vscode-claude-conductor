@@ -171,12 +171,12 @@
         },
         {
           "command": "claudeConductor.addFavorite",
-          "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem == projectRoot.unfavorited",
+          "when": "view =~ /claudeConductor\\.(activeSessions|recentProjects|favorites)/ && viewItem == projectRoot.unfavorited",
           "group": "inline@1"
         },
         {
           "command": "claudeConductor.removeFavorite",
-          "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem == projectRoot.favorited",
+          "when": "view =~ /claudeConductor\\.(activeSessions|recentProjects|favorites)/ && viewItem == projectRoot.favorited",
           "group": "inline@1"
         },
         {
@@ -191,12 +191,12 @@
         },
         {
           "command": "claudeConductor.addFavorite",
-          "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem == projectRoot.unfavorited",
+          "when": "view =~ /claudeConductor\\.(activeSessions|recentProjects|favorites)/ && viewItem == projectRoot.unfavorited",
           "group": "favorites@1"
         },
         {
           "command": "claudeConductor.removeFavorite",
-          "when": "view =~ /claudeConductor\\.(recentProjects|favorites)/ && viewItem == projectRoot.favorited",
+          "when": "view =~ /claudeConductor\\.(activeSessions|recentProjects|favorites)/ && viewItem == projectRoot.favorited",
           "group": "favorites@1"
         }
       ]
