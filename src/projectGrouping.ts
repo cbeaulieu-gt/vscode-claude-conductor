@@ -79,6 +79,16 @@ function parseWorktreePath(p: string): { root: string; branch: string } | null {
 // ---------------------------------------------------------------------------
 
 /**
+ * True when `p` is a worktree path of the shape `<root>/.worktrees/<branch>`.
+ * Trailing separators are tolerated. Case-insensitive on the `.worktrees`
+ * segment to match the existing `parseWorktreePath` behavior.
+ */
+export function isWorktreePath(p: string): boolean {
+  const normalized = p.replace(/\\/g, "/").replace(/\/+$/, "");
+  return /\/\.worktrees\/[^/]+$/i.test(normalized);
+}
+
+/**
  * Group a flat list of items into project root + worktree-children buckets.
  *
  * @param items   Flat list of items to group.

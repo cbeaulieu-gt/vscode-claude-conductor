@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { groupByProjectRoot } from "../src/projectGrouping";
+import { groupByProjectRoot, isWorktreePath } from "../src/projectGrouping";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -173,5 +173,42 @@ describe("groupByProjectRoot — not-a-worktree edge cases", () => {
     const rootGroup = groups.find((g) => g.root === root);
     // The .worktrees dir itself should NOT be counted as a child worktree
     expect(rootGroup!.children).not.toContain(worktreesDir);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isWorktreePath
+// ---------------------------------------------------------------------------
+
+describe("isWorktreePath", () => {
+  it("matches a basic .worktrees branch path with forward slashes", () => {
+    expect(isWorktreePath("C:/proj/.worktrees/fix-bug")).toBe(true);
+  });
+
+  it("matches a path with backslashes (Windows native)", () => {
+    expect(isWorktreePath("C:\\proj\\.worktrees\\fix-bug")).toBe(true);
+  });
+
+  it("matches a path with a trailing separator (regression for v3 raw-input gap)", () => {
+    expect(isWorktreePath("C:\\proj\\.worktrees\\fix-bug\\")).toBe(true);
+    expect(isWorktreePath("C:/proj/.worktrees/fix-bug/")).toBe(true);
+  });
+
+  it("rejects a project root (no .worktrees segment)", () => {
+    expect(isWorktreePath("C:\\proj")).toBe(false);
+    expect(isWorktreePath("/home/user/proj")).toBe(false);
+  });
+
+  it("rejects a .worktrees directory itself with no branch segment", () => {
+    expect(isWorktreePath("C:/proj/.worktrees")).toBe(false);
+    expect(isWorktreePath("C:/proj/.worktrees/")).toBe(false);
+  });
+
+  it("rejects a nested path beneath a worktree (more than one segment under .worktrees)", () => {
+    expect(isWorktreePath("C:/proj/.worktrees/fix-bug/src")).toBe(false);
+  });
+
+  it("is case-insensitive on the .worktrees segment", () => {
+    expect(isWorktreePath("C:/proj/.WorkTrees/branch")).toBe(true);
   });
 });
