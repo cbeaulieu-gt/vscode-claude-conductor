@@ -8,6 +8,24 @@ import { log, debugLog } from "./output";
 /** Prefix used for all Claude session terminal names */
 export const SESSION_NAME_PREFIX = "claude · ";
 
+/**
+ * Result returned by {@link SessionManager.launchSession}.
+ * - `ok: true` — session was created or reused successfully
+ * - `ok: false` — launch was refused; inspect `reason` and `message` for details
+ */
+export type LaunchResult =
+  | { ok: true; reused: boolean }
+  | { ok: false; reason: "missing" | "other"; message: string };
+
+/**
+ * Returns true for UNC paths (\\server\share) and forward-slash equivalents
+ * (//server/share). Sync fs.existsSync can hang on SMB timeouts for these
+ * paths, so the pre-flight existence check is skipped for them.
+ */
+function isLikelyNetworkPath(p: string): boolean {
+  return p.startsWith("\\\\") || p.startsWith("//");
+}
+
 const STATE_DIR = path.join(os.homedir(), ".claude", "session-state");
 
 interface SessionState {
@@ -72,24 +90,37 @@ export class SessionManager implements vscode.Disposable {
   /**
    * Launch a new Claude session in the given folder, or focus an existing one
    * if reuseExistingTerminal is enabled.
+   *
+   * Returns a {@link LaunchResult} describing the outcome. Callers that
+   * previously ignored the `void` return can continue to ignore `ok: true`;
+   * inspect `ok: false` to surface errors to the user.
    */
-  async launchSession(folderPath: string): Promise<void> {
+  async launchSession(folderPath: string): Promise<LaunchResult> {
     const normalized = path.normalize(folderPath);
 
     // Guard: refuse to create a terminal for a cwd that no longer exists on
     // disk.  This prevents VS Code from emitting "Starting directory does not
     // exist" errors when a stale _sessions entry (whose directory has since
     // been deleted or moved) is somehow passed here.
-    if (!fs.existsSync(normalized)) {
-      log(`[launch] skipping — cwd does not exist: ${normalized}`);
-      return;
+    //
+    // Skip the pre-flight for UNC paths — sync existsSync can hang on SMB
+    // timeouts for \\server\share paths, making the guard counterproductive.
+    if (!isLikelyNetworkPath(normalized)) {
+      if (!fs.existsSync(normalized)) {
+        log(`[launch] missing cwd: ${normalized}`);
+        return {
+          ok: false,
+          reason: "missing",
+          message: `Folder does not exist: ${normalized}`,
+        };
+      }
     }
 
     if (getReuseTerminal()) {
       const existing = this._findSessionByFolder(normalized);
       if (existing) {
         this.focusSession(existing);
-        return;
+        return { ok: true, reused: true };
       }
     }
 
@@ -109,6 +140,8 @@ export class SessionManager implements vscode.Disposable {
 
     // Dispatch the claude command only after the shell prompt is ready
     await this._dispatchClaudeCommand(terminal);
+
+    return { ok: true, reused: false };
   }
 
   /**

@@ -77,7 +77,10 @@ export async function showQuickPick(sessionManager: SessionManager): Promise<voi
       sessionManager.focusSession(session);
     }
   } else {
-    await sessionManager.launchSession(picked.folderPath);
+    const result = await sessionManager.launchSession(picked.folderPath);
+    if (!result.ok && result.reason === "missing") {
+      void vscode.window.showErrorMessage(result.message);
+    }
   }
 }
 

@@ -75,7 +75,10 @@ class SessionUriHandler implements vscode.UriHandler {
     }
 
     // Folder is already open — launch the session directly
-    await this.sm.launchSession(folderPath);
+    const result = await this.sm.launchSession(folderPath);
+    if (!result.ok && result.reason === "missing") {
+      void vscode.window.showErrorMessage(result.message);
+    }
   }
 }
 
@@ -94,7 +97,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const autoLaunchFolder = context.globalState.get<string>(AUTO_LAUNCH_KEY);
   if (autoLaunchFolder) {
     context.globalState.update(AUTO_LAUNCH_KEY, undefined);
-    sessionManager.launchSession(autoLaunchFolder);
+    void sessionManager.launchSession(autoLaunchFolder);
   }
 
   // State watcher for idle notifications (via Claude Code hooks)
@@ -128,7 +131,10 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("claudeConductor.openSession", async (folderPath?: string) => {
       if (typeof folderPath === "string") {
-        await sessionManager.launchSession(folderPath);
+        const result = await sessionManager.launchSession(folderPath);
+        if (!result.ok && result.reason === "missing") {
+          void vscode.window.showErrorMessage(result.message);
+        }
       } else {
         await showQuickPick(sessionManager);
       }
